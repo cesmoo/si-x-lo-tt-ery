@@ -15,10 +15,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
 from aiogram.types import BufferedInputFile, InputMediaPhoto, FSInputFile
 
-# --- 🌐 BROWSER AUTOMATION LIBRARIES ---
 from playwright.async_api import async_playwright
-
-# --- 🧠 TRUE MACHINE LEARNING LIBRARIES ---
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 import matplotlib
@@ -27,13 +24,9 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import warnings
 warnings.filterwarnings("ignore")
-# ------------------------------------------
 
 load_dotenv()
 
-# ==========================================
-# ⚙️ 1. CONFIGURATION
-# ==========================================
 USERNAME = os.getenv("SIXLOTTERY_USERNAME")
 PASSWORD = os.getenv("SIXLOTTERY_PASSWORD")
 TELEGRAM_BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -48,50 +41,23 @@ db = db_client['sixlottery_database']
 history_collection = db['game_history'] 
 predictions_collection = db['predictions'] 
 
-CURRENT_TOKEN = ""
-LAST_PROCESSED_ISSUE = None
-MAIN_MESSAGE_ID = None 
-SESSION_START_ISSUE = None 
-LAST_CAPTION_EDIT_TIME = 0 
-API_ERROR_COUNT = 0 
-
-AUTO_BET_ACTIVE = False
-AUTO_BET_BASE_AMOUNT = 100  
-LAST_BET_ISSUE = None 
-
-START_OF_ROUND_BALANCE = 0.0
-CURRENT_BALANCE_DISPLAY = 0.0
+CURRENT_TOKEN, LAST_PROCESSED_ISSUE, MAIN_MESSAGE_ID, SESSION_START_ISSUE = "", None, None, None
+LAST_CAPTION_EDIT_TIME, API_ERROR_COUNT = 0, 0 
+AUTO_BET_ACTIVE, AUTO_BET_BASE_AMOUNT, LAST_BET_ISSUE = False, 100, None
+START_OF_ROUND_BALANCE, CURRENT_BALANCE_DISPLAY = 0.0, 0.0
 
 LAST_KNOWN_STATE = {
-    "table_str": "<code>Data Loading...</code>",
-    "next_issue": "Loading",
-    "predicted": "Wait",
-    "final_prob": 0.0,
-    "reason": "Syncing Data...",
-    "bet_advice": "...",
-    "autobet": "🔴 <b>OFF</b>",
-    "balance": "💳 <b>Balance:</b> Syncing...",
-    "profit": "📊 <b>Profit:</b> 0.00 Ks"
+    "table_str": "<code>Data Loading...</code>", "next_issue": "Loading", "predicted": "Wait",
+    "final_prob": 0.0, "reason": "Syncing Data...", "bet_advice": "...",
+    "autobet": "🔴 <b>OFF</b>", "balance": "💳 <b>Balance:</b> Syncing...", "profit": "📊 <b>Profit:</b> 0.00 Ks"
 }
-
 AI_CACHE = {"last_trained_issue": None, "rf_model": None, "gb_model": None, "cached_prediction": None, "cached_prob": None, "cached_logic": ""}
+BASE_HEADERS = {'authority': '6lotteryapi.com', 'accept': 'application/json, text/plain, */*', 'content-type': 'application/json;charset=UTF-8', 'origin': 'https://www.6win566.com', 'referer': 'https://www.6win566.com/', 'user-agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36'}
 
-BASE_HEADERS = {
-    'authority': '6lotteryapi.com',
-    'accept': 'application/json, text/plain, */*',
-    'content-type': 'application/json;charset=UTF-8',
-    'origin': 'https://www.6win566.com',
-    'referer': 'https://www.6win566.com/',
-    'user-agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36',
-}
-
-# --- 🌐 Playwright Global Variables ---
-PW_PAGE = None
-PW_CONTEXT = None
-PW_BROWSER = None
+PW_PAGE, PW_CONTEXT, PW_BROWSER = None, None, None
 
 # ==========================================
-# 🌐 2. PLAYWRIGHT BROWSER INITIALIZATION (ROBUST LOGIN)
+# 🌐 2. PLAYWRIGHT BROWSER INITIALIZATION (HUMAN-TYPING FIX)
 # ==========================================
 async def init_playwright():
     global PW_PAGE, PW_CONTEXT, PW_BROWSER
@@ -101,73 +67,63 @@ async def init_playwright():
         PW_BROWSER = await p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu']) 
         PW_CONTEXT = await PW_BROWSER.new_context(
             user_agent="Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",
-            viewport={'width': 414, 'height': 896},
-            locale='en-US' 
+            viewport={'width': 414, 'height': 896}, locale='en-US' 
         )
         PW_PAGE = await PW_CONTEXT.new_page()
         
-        # ၁။ Login စာမျက်နှာသို့ သွားခြင်း
         print("🌐 Login စာမျက်နှာသို့ သွားနေပါသည်...")
         await PW_PAGE.goto("https://www.6win566.com/#/login") 
         await PW_PAGE.wait_for_load_state("networkidle") 
         await PW_PAGE.wait_for_timeout(3000)
         
-        # ၂။ ဖုန်းနံပါတ်နှင့် ပတ်စ်ဝါဒ် ရိုက်ထည့်ခြင်း
         login_phone = USERNAME
-        if login_phone.startswith("95") and len(login_phone) > 9:
-            login_phone = login_phone[2:]
+        if login_phone.startswith("95") and len(login_phone) > 9: login_phone = login_phone[2:]
             
         print(f"🌐 ဖုန်းနံပါတ် ({login_phone}) နှင့် ပတ်စ်ဝါဒ် ထည့်သွင်းနေပါသည်...")
         
-        # 💡 [Fix] မျက်စိဖြင့် မြင်ရသော (:visible) Input အကွက်များကိုသာ သီးသန့်ရွေးချယ်မည်
         visible_inputs = await PW_PAGE.locator("input:visible").all()
-        
         if len(visible_inputs) >= 2:
-            await visible_inputs[0].fill(login_phone) # ဖုန်းနံပါတ်အကွက်
-            await visible_inputs[1].fill(PASSWORD)    # Password အကွက်
-        else:
-            # အကယ်၍ အထက်ပါနည်းလမ်း မရပါက Type ဖြင့် တိုက်ရိုက်ရှာထည့်မည်
-            await PW_PAGE.locator("input[type='text'], input[type='tel']").first.fill(login_phone)
-            await PW_PAGE.locator("input[type='password']").first.fill(PASSWORD)
+            # 💡 [FIX] လူကိုယ်တိုင် ရိုက်ထည့်သကဲ့သို့ တစ်လုံးချင်းစီ ရိုက်ထည့်မည် (press_sequentially)
+            await visible_inputs[0].click()
+            await visible_inputs[0].press_sequentially(login_phone, delay=50) 
+            await PW_PAGE.wait_for_timeout(500)
             
-        await PW_PAGE.wait_for_timeout(1000)
-        
-        # ၃။ 'လော့ဂ်အင်' ခလုတ်ကို နှိပ်ခြင်း
+            await visible_inputs[1].click()
+            await visible_inputs[1].press_sequentially(PASSWORD, delay=50)
+            await PW_PAGE.wait_for_timeout(500)
+            
         buttons = await PW_PAGE.locator("button:visible").all()
-        login_clicked = False
         for btn in buttons:
-            btn_class = await btn.get_attribute("class")
-            if btn_class and "van-button--danger" in btn_class: 
+            btn_class = await btn.get_attribute("class") or ""
+            if "van-button--danger" in btn_class: 
                 print("🌐 လော့ဂ်အင် ခလုတ်ကို နှိပ်နေပါသည်...")
                 await btn.click()
-                login_clicked = True
                 break
-        
-        if not login_clicked and len(buttons) > 0:
-             await buttons[0].click()
              
         await PW_PAGE.wait_for_timeout(5000)
         
-        # ၄။ Wingo 1 Min ပွဲစဉ် URL သို့ တိုက်ရိုက်သွားရန်
+        # 💡 [STRICT CHECK] Login တကယ် အောင်မြင်မှု ရှိ/မရှိ စစ်ဆေးမည်
+        current_url = PW_PAGE.url
+        if "login" in current_url:
+            print("❌ Login မအောင်မြင်ပါ။ စကားဝှက် သို့မဟုတ် ဖုန်းနံပါတ် မှားယွင်းနေပါသည်။")
+            await PW_PAGE.screenshot(path="login_failed.png", full_page=True)
+            return # ဆက်မလုပ်တော့ဘဲ ရပ်မည်
+        
         print("🌐 Wingo 1 Min စာမျက်နှာသို့ သွားနေပါသည်...")
         await PW_PAGE.goto("https://www.6win566.com/#/home/AllLotteryGames/WinGo?type=1")
         await PW_PAGE.wait_for_load_state("networkidle")
         await PW_PAGE.wait_for_timeout(5000)
         
         await PW_PAGE.mouse.click(10, 10)
-        await PW_PAGE.wait_for_timeout(1000)
         print("✅ Playwright Login & Navigation Completed.")
         
     except Exception as e:
         print(f"❌ Playwright Init Error: {e}")
-        try:
-            await PW_PAGE.screenshot(path="init_error.png", full_page=True)
+        try: await PW_PAGE.screenshot(path="init_error.png", full_page=True)
         except: pass
 
 async def init_db():
-    try:
-        await history_collection.create_index("issue_number", unique=True)
-        await predictions_collection.create_index("issue_number", unique=True)
+    try: await history_collection.create_index("issue_number", unique=True); await predictions_collection.create_index("issue_number", unique=True)
     except Exception: pass
 
 async def fetch_with_retry(session, url, headers, json_data, retries=1):
@@ -182,82 +138,57 @@ async def login_and_get_token(session: aiohttp.ClientSession):
     global CURRENT_TOKEN
     json_data = {'username': USERNAME, 'pwd': PASSWORD, 'phonetype': 1, 'logintype': 'mobile', 'packId': '', 'deviceId': 'b9b753a9f874897574d7fa72ff84374c', 'language': 7, 'random': '457a0935e8b54d63924ce243e028f789', 'signature': '6C2BCE370032980C33A1FC41A327DF09', 'timestamp': int(time.time())}
     data = await fetch_with_retry(session, 'https://6lotteryapi.com/api/webapi/Login', BASE_HEADERS, json_data)
-    if data and data.get('code') == 0:
-        CURRENT_TOKEN = f"Bearer {data.get('data', {}).get('token', '')}"
-        return True
+    if data and data.get('code') == 0: CURRENT_TOKEN = f"Bearer {data.get('data', {}).get('token', '')}"; return True
     return False
 
-# ==========================================
-# 💳 3. BALANCE FETCHING FUNCTION
-# ==========================================
 async def get_user_balance(session):
     global CURRENT_TOKEN
     if not CURRENT_TOKEN: return None
-    
-    headers = BASE_HEADERS.copy()
-    headers['authorization'] = CURRENT_TOKEN
-    json_data = {
-        'language': 7,
-        'random': '6e5c9c6f8d824252b800b40d6a0af244',
-        'signature': '6E635C1F332EF7D017FF2B7370160E4D',
-        'timestamp': int(time.time()),
-    }
-    
+    headers = BASE_HEADERS.copy(); headers['authorization'] = CURRENT_TOKEN
+    json_data = {'language': 7, 'random': '6e5c9c6f8d824252b800b40d6a0af244', 'signature': '6E635C1F332EF7D017FF2B7370160E4D', 'timestamp': int(time.time())}
     try:
         res = await fetch_with_retry(session, 'https://6lotteryapi.com/api/webapi/GetBalance', headers, json_data)
-        if res and res.get('code') == 0:
-            data = res.get('data', {})
-            amt = data.get('amount', data.get('balance', 0))
-            return float(amt)
-    except Exception:
-        pass
+        if res and res.get('code') == 0: return float(res.get('data', {}).get('balance', 0))
+    except Exception: pass
     return None
 
 # ==========================================
-# 💰 3. AUTO-BETTING FUNCTION (WITH DEBUG SNAPSHOT)
+# 💰 3. AUTO-BETTING FUNCTION (HUMAN-TYPING FIX)
 # ==========================================
 async def execute_auto_bet_via_browser(issue_number, predicted_size, streak_count):
     global PW_PAGE
     if not PW_PAGE: return False, "Browser Not Ready", False
-    
     if streak_count > 6: streak_count = 0 
     dynamic_bet_count = 2 ** streak_count
     
     try:
-        # Time out ကို 10s အဖြစ် လျှော့ချလိုက်ပါသည် (အကြာကြီး မစောင့်စေရန်)
-        if predicted_size == "BIG":
-            await PW_PAGE.click("xpath=//*[contains(text(), 'အကြီး') or contains(text(), 'Big')]", timeout=10000)
-        else:
-            await PW_PAGE.click("xpath=//*[contains(text(), 'အသေး') or contains(text(), 'Small')]", timeout=10000)
+        if predicted_size == "BIG": await PW_PAGE.click("xpath=//*[contains(text(), 'အကြီး') or contains(text(), 'Big')]", timeout=10000)
+        else: await PW_PAGE.click("xpath=//*[contains(text(), 'အသေး') or contains(text(), 'Small')]", timeout=10000)
             
         await PW_PAGE.wait_for_timeout(1000) 
         
-        # အဆ ထည့်သွင်းခြင်း
         num_input = PW_PAGE.locator("xpath=//input[@type='number' or @type='tel']")
         if await num_input.count() > 0:
             await num_input.first.click(timeout=5000)
             await PW_PAGE.keyboard.press("Control+A") 
             await PW_PAGE.keyboard.press("Backspace") 
-            await num_input.first.fill(str(dynamic_bet_count)) 
+            # 💡 [FIX] လောင်းကြေးအဆကိုလည်း လူကိုယ်တိုင်ရိုက်သကဲ့သို့ ရိုက်ထည့်မည်
+            await num_input.first.press_sequentially(str(dynamic_bet_count), delay=50) 
             await PW_PAGE.wait_for_timeout(500)
         
-        # အတည်ပြု ခလုတ်နှိပ်ခြင်း
         await PW_PAGE.click("xpath=//button[contains(., 'စုစုပေါင်းပမာဏ') or contains(., 'Total') or contains(., 'Bet')]", timeout=10000)
         await PW_PAGE.wait_for_timeout(1500)
-        
         return True, f"✅ Success ({dynamic_bet_count}x)", False
         
     except Exception as e:
         err_msg = str(e).split('\n')[0][:30]
-        # 📸 [CRITICAL] Error တက်ပါက ချက်ချင်း Screenshot ရိုက်ယူမည်
         try:
             await PW_PAGE.screenshot(path="debug_snap.png", full_page=True)
-            return False, f"⚠️ UI Error: {err_msg}", True # True = Snapshot ရှိသည်
-        except:
-            return False, f"⚠️ UI Error: {err_msg}", False
+            return False, f"⚠️ UI Error: {err_msg}", True 
+        except: return False, f"⚠️ UI Error: {err_msg}", False
 
 # ==========================================
-# 🧠 4. THE ULTIMATE AI PRO (Hiding logic to save space)
+# 🧠 4. THE ULTIMATE AI PRO
 # ==========================================
 def ultimate_ai_predict(history_docs, recent_preds, current_issue):
     global AI_CACHE
@@ -294,13 +225,9 @@ def ultimate_ai_predict(history_docs, recent_preds, current_issue):
     if len(sizes) >= 3:
         if sizes[-1] != sizes[-2] and sizes[-2] != sizes[-3]:
             pred_pattern = 'BIG' if sizes[-1] == 'SMALL' else 'SMALL'
-            if pred_pattern == 'BIG': score_b += pattern_weight
-            else: score_s += pattern_weight
-            logic_used += "├ 🏓 <b>Pattern:</b> ခုတ်ချိုး\n"
+            if pred_pattern == 'BIG': score_b += pattern_weight; else: score_s += pattern_weight; logic_used += "├ 🏓 <b>Pattern:</b> ခုတ်ချိုး\n"
         elif sizes[-1] == sizes[-2] == sizes[-3]:
-            if sizes[-1] == 'BIG': score_b += pattern_weight
-            else: score_s += pattern_weight
-            logic_used += "├ 🐉 <b>Pattern:</b> အတန်းရှည်\n"
+            if sizes[-1] == 'BIG': score_b += pattern_weight; else: score_s += pattern_weight; logic_used += "├ 🐉 <b>Pattern:</b> အတန်းရှည်\n"
     final_pred, total_score = "BIG" if score_b > score_s else "SMALL", score_b + score_s
     if total_score == 0: final_prob, logic_used = 55.0, logic_used + "└ ⚠️ Data မရှိသေးပါ။"
     else: final_prob = min(max((max(score_b, score_s) / total_score) * 100, 72.0), 98.0) 
@@ -408,15 +335,13 @@ async def check_game_and_predict(session: aiohttp.ClientSession):
             predicted_result_db = "BIG" if "BIG" in predicted else "SMALL"
             await predictions_collection.update_one({"issue_number": next_issue}, {"$set": {"predicted_size": predicted_result_db}}, upsert=True)
 
-            # --- 🤖 AUTO-BET TRIGGER & SNAPSHOT SENDER ---
+            # --- 🤖 AUTO-BET TRIGGER ---
             if AUTO_BET_ACTIVE:
                 if is_new_issue and LAST_BET_ISSUE != next_issue:
                     success, bet_msg, has_snap = await execute_auto_bet_via_browser(next_issue, predicted_result_db, current_lose_streak)
-                    if success: 
-                        LAST_KNOWN_STATE['autobet'] = f"🟢 <b>ON</b> | {bet_msg}"
+                    if success: LAST_KNOWN_STATE['autobet'] = f"🟢 <b>ON</b> | {bet_msg}"
                     else: 
                         LAST_KNOWN_STATE['autobet'] = f"🔴 <b>ERROR</b> | {bet_msg}"
-                        # 📸 Browser မှာ Error တက်သွားလျှင် Snapshot ကို Telegram သို့ ချက်ချင်းပို့မည်
                         if has_snap and os.path.exists("debug_snap.png"):
                             try:
                                 snap_photo = FSInputFile("debug_snap.png")
@@ -428,7 +353,6 @@ async def check_game_and_predict(session: aiohttp.ClientSession):
 
             display_streak = 0 if current_lose_streak > 6 else current_lose_streak
             current_bet_count = 2 ** display_streak
-            
             if display_streak == 0: bet_advice = f"💰 <b>လောင်းကြေး:</b> Amount {AUTO_BET_BASE_AMOUNT} | Bet Count: 1"
             elif display_streak <= 6: bet_advice = f"💰 <b>လောင်းကြေး:</b> Amount {AUTO_BET_BASE_AMOUNT} | Bet Count: {current_bet_count} (Martingale)"
             if current_lose_streak >= 6: bet_advice += "\n⚠️ <b>[DANGER] ၆ ပွဲဆက်တိုက်ရှုံးထားပါသည်! နောက်ပွဲ 1 မှ ပြန်စပါမည်။</b>"
@@ -446,23 +370,9 @@ async def check_game_and_predict(session: aiohttp.ClientSession):
                 try:
                     img_buf = await asyncio.to_thread(generate_winrate_chart, session_preds)
                     img_bytes = img_buf.read() 
-                    sec_left = 60 - (int(time.time()) % 60)
-                    if sec_left == 60: sec_left = 0
+                    sec_left = 60 - (int(time.time()) % 60); sec_left = 0 if sec_left == 60 else sec_left
                     iss_display = f"{next_issue[:3]}**{next_issue[-4:]}"
-                    
-                    tg_caption = (
-                        f"<b>🏆 SIX-LOTTERY (AI PRO EDITION)</b>\n"
-                        f"⏰ Next Result In: <b>{sec_left}s</b>\n\n"
-                        f"{table_str}\n"
-                        f"🅿️ <b>Period:</b> {iss_display}\n"
-                        f"🎯 <b>Predict: {predicted}</b>\n"
-                        f"📈 <b>ဖြစ်နိုင်ခြေ:</b> {final_prob}%\n"
-                        f"🤖 <b>Auto-Bet:</b> {LAST_KNOWN_STATE['autobet']}\n"
-                        f"{LAST_KNOWN_STATE['balance']}\n"
-                        f"{LAST_KNOWN_STATE['profit']}\n"
-                        f"💡 <b>အကြောင်းပြချက်:</b>\n{reason}\n"
-                        f"━━━━━━━━━━━━━━━━━━\n{bet_advice}"
-                    )
+                    tg_caption = (f"<b>🏆 SIX-LOTTERY (AI PRO EDITION)</b>\n⏰ Next Result In: <b>{sec_left}s</b>\n\n{table_str}\n🅿️ <b>Period:</b> {iss_display}\n🎯 <b>Predict: {predicted}</b>\n📈 <b>ဖြစ်နိုင်ခြေ:</b> {final_prob}%\n🤖 <b>Auto-Bet:</b> {LAST_KNOWN_STATE['autobet']}\n{LAST_KNOWN_STATE['balance']}\n{LAST_KNOWN_STATE['profit']}\n💡 <b>အကြောင်းပြချက်:</b>\n{reason}\n━━━━━━━━━━━━━━━━━━\n{bet_advice}")
                     if MAIN_MESSAGE_ID:
                         try:
                             photo = BufferedInputFile(img_bytes, filename=f"chart_{int(time.time())}.png")
@@ -471,12 +381,10 @@ async def check_game_and_predict(session: aiohttp.ClientSession):
                         except Exception:
                             try: await bot.delete_message(chat_id=TELEGRAM_CHANNEL_ID, message_id=MAIN_MESSAGE_ID)
                             except: pass
-                            photo_fallback = BufferedInputFile(img_bytes, filename=f"fb_{int(time.time())}.png")
-                            msg = await bot.send_photo(chat_id=TELEGRAM_CHANNEL_ID, photo=photo_fallback, caption=tg_caption, disable_notification=True)
+                            msg = await bot.send_photo(chat_id=TELEGRAM_CHANNEL_ID, photo=BufferedInputFile(img_bytes, filename=f"fb_{int(time.time())}.png"), caption=tg_caption, disable_notification=True)
                             MAIN_MESSAGE_ID = msg.message_id
                     else:
-                        photo_new = BufferedInputFile(img_bytes, filename=f"new_{int(time.time())}.png")
-                        msg = await bot.send_photo(chat_id=TELEGRAM_CHANNEL_ID, photo=photo_new, caption=tg_caption)
+                        msg = await bot.send_photo(chat_id=TELEGRAM_CHANNEL_ID, photo=BufferedInputFile(img_bytes, filename=f"new_{int(time.time())}.png"), caption=tg_caption)
                         MAIN_MESSAGE_ID = msg.message_id
                     LAST_CAPTION_EDIT_TIME = time.time()
                 except Exception: pass
@@ -488,23 +396,9 @@ async def check_game_and_predict(session: aiohttp.ClientSession):
     current_time = time.time()
     if current_time - LAST_CAPTION_EDIT_TIME >= 1.5:
         if MAIN_MESSAGE_ID and LAST_KNOWN_STATE["next_issue"] != "Loading":
-            sec_left = 60 - (int(time.time()) % 60)
-            if sec_left == 60: sec_left = 0 
-            iss = LAST_KNOWN_STATE['next_issue']
-            iss_display = f"{iss[:3]}**{iss[-4:]}" if len(iss) > 4 else iss
-            tg_caption = (
-                f"<b>🏆 SIX-LOTTERY (AI PRO EDITION)</b>\n"
-                f"⏰ Next Result In: <b>{sec_left}s</b>\n\n"
-                f"{LAST_KNOWN_STATE['table_str']}\n"
-                f"🅿️ <b>Period:</b> {iss_display}\n"
-                f"🎯 <b>Predict: {LAST_KNOWN_STATE['predicted']}</b>\n"
-                f"📈 <b>ဖြစ်နိုင်ခြေ:</b> {LAST_KNOWN_STATE['final_prob']}%\n"
-                f"🤖 <b>Auto-Bet:</b> {LAST_KNOWN_STATE.get('autobet', '🔴 OFF')}\n"
-                f"{LAST_KNOWN_STATE.get('balance', '')}\n"
-                f"{LAST_KNOWN_STATE.get('profit', '')}\n"
-                f"💡 <b>အကြောင်းပြချက်:</b>\n{LAST_KNOWN_STATE['reason']}\n"
-                f"━━━━━━━━━━━━━━━━━━\n{LAST_KNOWN_STATE['bet_advice']}"
-            )
+            sec_left = 60 - (int(time.time()) % 60); sec_left = 0 if sec_left == 60 else sec_left
+            iss_display = f"{LAST_KNOWN_STATE['next_issue'][:3]}**{LAST_KNOWN_STATE['next_issue'][-4:]}"
+            tg_caption = (f"<b>🏆 SIX-LOTTERY (AI PRO EDITION)</b>\n⏰ Next Result In: <b>{sec_left}s</b>\n\n{LAST_KNOWN_STATE['table_str']}\n🅿️ <b>Period:</b> {iss_display}\n🎯 <b>Predict: {LAST_KNOWN_STATE['predicted']}</b>\n📈 <b>ဖြစ်နိုင်ခြေ:</b> {LAST_KNOWN_STATE['final_prob']}%\n🤖 <b>Auto-Bet:</b> {LAST_KNOWN_STATE.get('autobet', '🔴 OFF')}\n{LAST_KNOWN_STATE.get('balance', '')}\n{LAST_KNOWN_STATE.get('profit', '')}\n💡 <b>အကြောင်းပြချက်:</b>\n{LAST_KNOWN_STATE['reason']}\n━━━━━━━━━━━━━━━━━━\n{LAST_KNOWN_STATE['bet_advice']}")
             if API_ERROR_COUNT >= 3: tg_caption = f"⚠️ <b>[API သော့ သက်တမ်းကုန်သွားပါပြီ! အသစ်လဲပေးပါ]</b>\n\n" + tg_caption
             try:
                 await bot.edit_message_caption(chat_id=TELEGRAM_CHANNEL_ID, message_id=MAIN_MESSAGE_ID, caption=tg_caption, parse_mode="HTML")
@@ -519,29 +413,27 @@ async def autobet_handler(message: types.Message):
     global AUTO_BET_ACTIVE, AUTO_BET_BASE_AMOUNT
     parts = message.text.lower().split()
     if len(parts) == 1:
-        status = "ON 🟢" if AUTO_BET_ACTIVE else "OFF 🔴"
-        await message.reply(f"🤖 <b>Auto-Bet Status:</b> {status}\n💰 <b>Base Amount:</b> {AUTO_BET_BASE_AMOUNT}\n\nအသုံးပြုနည်း:\n<code>.autobet on 100</code> (၁၀၀ ဖိုး အော်တိုလောင်းမည်)\n<code>.autobet off</code> (အော်တိုပိတ်မည်)")
+        await message.reply(f"🤖 <b>Auto-Bet Status:</b> {'ON 🟢' if AUTO_BET_ACTIVE else 'OFF 🔴'}\n💰 <b>Base Amount:</b> {AUTO_BET_BASE_AMOUNT}\n\nအသုံးပြုနည်း:\n<code>.autobet on 100</code>\n<code>.autobet off</code>")
         return
     cmd = parts[1]
     if cmd == "on":
         AUTO_BET_ACTIVE = True
         if len(parts) >= 3 and parts[2].isdigit(): AUTO_BET_BASE_AMOUNT = int(parts[2])
-        await message.reply(f"✅ Auto-Bet (Browser) ဖွင့်လိုက်ပါပြီ။\n💰 အခြေခံလောင်းကြေး: {AUTO_BET_BASE_AMOUNT}")
+        await message.reply(f"✅ Auto-Bet ဖွင့်လိုက်ပါပြီ။\n💰 အခြေခံလောင်းကြေး: {AUTO_BET_BASE_AMOUNT}")
     elif cmd == "off":
         AUTO_BET_ACTIVE = False
         await message.reply("❌ Auto-Bet ပိတ်လိုက်ပါပြီ။")
 
 @dp.message(Command("start"))
 async def send_welcome(message: types.Message):
-    await message.reply("👋 မင်္ဂလာပါ။ စနစ်က Zero-Lag AI Pro Timer (Browser Auto-Bet) ဖြင့် လုံးဝတိကျစွာ အလုပ်လုပ်နေပါပြီ။")
+    await message.reply("👋 မင်္ဂလာပါ။ စနစ်က Zero-Lag AI Pro Timer ဖြင့် အလုပ်လုပ်နေပါပြီ။")
 
 # ==========================================
 # 🔄 7. BACKGROUND TASK
 # ==========================================
 async def auto_broadcaster():
     await init_db() 
-    await init_playwright() # BROWSER စတင်ဖွင့်လှစ်ခြင်း
-    
+    await init_playwright() 
     async with aiohttp.ClientSession() as session:
         await login_and_get_token(session)
         while True:
@@ -550,7 +442,7 @@ async def auto_broadcaster():
             await asyncio.sleep(0.5) 
 
 async def main():
-    print("🚀 Aiogram SIX-LOTTERY Bot (Browser Debug Edition) စတင်နေပါပြီ...\n")
+    print("🚀 Aiogram SIX-LOTTERY Bot စတင်နေပါပြီ...\n")
     await bot.delete_webhook(drop_pending_updates=True)
     asyncio.create_task(auto_broadcaster())
     await dp.start_polling(bot)
