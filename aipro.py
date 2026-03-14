@@ -142,22 +142,30 @@ async def login_and_get_token(session: aiohttp.ClientSession):
         return True
     return False
 
+# ==========================================
+# 💳 3. BALANCE FETCHING FUNCTION
+# ==========================================
 async def get_user_balance(session):
     global CURRENT_TOKEN
     if not CURRENT_TOKEN: return None
+    
     headers = BASE_HEADERS.copy()
     headers['authorization'] = CURRENT_TOKEN
     json_data = {
         'language': 7,
         'random': '6e5c9c6f8d824252b800b40d6a0af244',
         'signature': '6E635C1F332EF7D017FF2B7370160E4D',
-        'timestamp': 1773502604,
+        'timestamp': int(time.time()),
     }
+    
     try:
         res = await fetch_with_retry(session, 'https://6lotteryapi.com/api/webapi/GetBalance', headers, json_data)
         if res and res.get('code') == 0:
-            return float(res.get('data', {}).get('balance', 0))
-    except Exception: pass
+            data = res.get('data', {})
+            amt = data.get('amount', data.get('balance', 0))
+            return float(amt)
+    except Exception:
+        pass
     return None
 
 # ==========================================
@@ -174,6 +182,7 @@ async def execute_auto_bet(session, issue_number, predicted_size, streak_count):
     dynamic_bet_count = 2 ** streak_count
     select_type_val = BET_MAPPING.get(predicted_size, 14) 
     
+    # 💡 [Test 1] လုံခြုံရေးကုဒ်တွေကို ဖြုတ်ပြီး စမ်းကြည့်ခြင်း
     json_data = {
         'typeId': 1,
         'issuenumber': issue_number,
@@ -181,10 +190,8 @@ async def execute_auto_bet(session, issue_number, predicted_size, streak_count):
         'betCount': dynamic_bet_count,   
         'gameType': 2,
         'selectType': select_type_val,
-        'language': 7,
-        'random': 'e4a8a3bc251f4e11ab07873aac3290a4', 
-        'signature': '6FDB1170F9B487759CD710E58E35E302', 
-        'timestamp': 1773501104,
+        'language': 7
+        # random, signature, timestamp များကို ဖြုတ်ထားပါသည်
     }
     
     try:
@@ -193,7 +200,6 @@ async def execute_auto_bet(session, issue_number, predicted_size, streak_count):
             if response_data.get('code') == 0:
                 return True, f"✅ Success ({dynamic_bet_count}x)"
             else:
-                # 💡 ဆာဗာက ပေးတဲ့ Error အတိအကျကို ပြန်ပို့ပေးမည်
                 api_error_msg = response_data.get('msg', 'Unknown Server Error')
                 return False, f"⚠️ API: {api_error_msg}"
         return False, "❌ No Response"
