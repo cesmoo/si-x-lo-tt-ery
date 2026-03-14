@@ -245,8 +245,160 @@ def ultimate_ai_predict(history_docs, recent_preds, current_issue):
 
 # ==========================================
 # 🎨 5. DYNAMIC GRAPH GENERATOR (AI PERFORMANCE ANALYTICS UI)
-# (ယခင်အတိုင်း ဆက်လက်အသုံးပြုနိုင်ပါသည် - ပြင်ဆင်ရန်မလိုပါ)
 # ==========================================
+def generate_winrate_chart(predictions):
+    wins, losses = 0, 0
+    bar_colors, dots_list, bar_heights = [], [], []
+    history_wr = [] # 💡 Track the win rate percentage over time for the Line Chart
+    
+    latest_preds = list(reversed(predictions))[-20:]
+    
+    for i, p in enumerate(latest_preds): 
+        current_played = i + 1
+        if 'WIN' in p.get('win_lose', ''):
+            wins += 1
+            bar_colors.append('#00e5ff')  # Cyan/Green glow
+            dots_list.append(('G', '#1de9b6'))
+            current_wr = (wins / current_played) * 100
+            bar_heights.append(50 + (current_wr / 2)) # High bars for WIN
+        else:
+            losses += 1
+            bar_colors.append('#ff4444')  # Red glow
+            dots_list.append(('R', '#ef5350'))
+            current_wr = (wins / current_played) * 100
+            bar_heights.append(10 + (current_wr / 3)) # Low bars for LOSS
+        
+        # Win rate track
+        history_wr.append(current_wr)
+            
+    total_played = wins + losses
+    win_rate = int((wins / total_played * 100)) if total_played > 0 else 0
+
+    # 💡 1024x768 Fixed Size with Sci-Fi Dark Background
+    fig = plt.figure(figsize=(10.24, 7.68), facecolor='#1c1f26') 
+    
+    # --- 1. TITLE ---
+    fig.text(0.05, 0.90, "AI PERFORMANCE ANALYTICS", color='#ffffff', fontsize=32, fontweight='bold', ha='left')
+
+    # --- 2. CIRCLE GAUGE (Left) ---
+    ax_circle = fig.add_axes([0.08, 0.42, 0.35, 0.40])
+    ax_circle.set_axis_off()
+    ax_circle.set_xlim(0, 1)
+    ax_circle.set_ylim(0, 1)
+    
+    # Background arc
+    theta_bg = np.linspace(-1.25*np.pi, 0.25*np.pi, 200)
+    ax_circle.plot(0.5 + 0.45*np.cos(theta_bg), 0.5 + 0.45*np.sin(theta_bg), color='#2c313c', linewidth=12)
+    
+    # Progress arc (Cyan)
+    if win_rate > 0:
+        end_angle = 0.25*np.pi - (win_rate/100) * 1.5 * np.pi
+        theta_fg = np.linspace(0.25*np.pi, end_angle, 100)
+        # Main Line
+        ax_circle.plot(0.5 + 0.45*np.cos(theta_fg), 0.5 + 0.45*np.sin(theta_fg), color='#00e5ff', linewidth=12)
+        # Glow Effect
+        ax_circle.plot(0.5 + 0.45*np.cos(theta_fg), 0.5 + 0.45*np.sin(theta_fg), color='#00e5ff', linewidth=22, alpha=0.2)
+            
+    # Text inside circle
+    ax_circle.text(0.5, 0.75, f"{total_played}/20", color='#a3a8b5', fontsize=16, fontweight='bold', ha='center', va='center')
+    ax_circle.text(0.5, 0.65, "TOTAL WINRATE", color='#7a8294', fontsize=12, fontweight='bold', ha='center', va='center')
+    ax_circle.text(0.5, 0.48, f"{win_rate}%", color='#00e5ff', fontsize=65, fontweight='bold', ha='center', va='center')
+    ax_circle.text(0.5, 0.32, "PREDICTIONS MADE", color='#7a8294', fontsize=12, fontweight='bold', ha='center', va='center')
+    
+    # Finalised Badge
+    badge = patches.FancyBboxPatch((0.35, 0.16), 0.3, 0.08, boxstyle="round,pad=0.03", fc="#164e63", ec="#00e5ff", lw=1.5)
+    ax_circle.add_patch(badge)
+    ax_circle.text(0.5, 0.20, "FINALISED ✓", color='#00e5ff', fontsize=11, fontweight='bold', ha='center', va='center')
+    
+    ax_circle.text(0.05, 0.05, "0", color='#7a8294', fontsize=12, fontweight='bold', ha='center')
+    ax_circle.text(0.95, 0.05, "100%", color='#7a8294', fontsize=12, fontweight='bold', ha='center')
+
+    # --- 3. BAR CHART + TREND LINE (Right) ---
+    fig.text(0.74, 0.85, "SESSION PERFORMANCE TREND", color='#a3a8b5', fontsize=14, fontweight='bold', ha='center')
+    fig.lines.extend([plt.Line2D([0.55, 0.93], [0.83, 0.83], color='#2c313c', lw=2, transform=fig.transFigure)])
+    
+    ax_bar = fig.add_axes([0.55, 0.47, 0.38, 0.33])
+    ax_bar.set_facecolor('#1c1f26')
+    ax_bar.set_xlim(-0.5, 19.5)
+    ax_bar.set_ylim(0, 105) 
+    
+    ax_bar.spines['top'].set_visible(False)
+    ax_bar.spines['right'].set_visible(False)
+    ax_bar.spines['left'].set_visible(False)
+    ax_bar.spines['bottom'].set_visible(False)
+    
+    ax_bar.set_yticks([0, 25, 50, 75, 100])
+    ax_bar.set_yticklabels(['0%', '25%', '50%', '75%', '100%'], color='#7a8294', fontsize=10, fontweight='bold') 
+    ax_bar.tick_params(axis='y', length=0, pad=5)
+    ax_bar.grid(axis='y', color='#2c313c', linestyle='-', linewidth=1.5)
+    
+    if total_played > 0:
+        x_pos = np.arange(total_played)
+        # ၁။ ဘားဇယား (Bars) - Background
+        ax_bar.bar(x_pos, bar_heights, color=bar_colors, width=0.6, alpha=0.9, zorder=2)
+        
+        # ၂။ မျဉ်းကွေး (Line Graph) - Foreground
+        ax_bar.plot(x_pos, history_wr, color='#3b82f6', linewidth=2.5, marker='o', markersize=6, markerfacecolor='#1c1f26', markeredgecolor='#00e5ff', markeredgewidth=2, zorder=4)
+        
+    ax_bar.set_xticks(np.arange(20))
+    ax_bar.set_xticklabels([str(i+1) for i in range(20)], color='#7a8294', fontsize=10)
+
+    # --- 4. WINS & LOSSES BOXES ---
+    # WIN Box (Cyan)
+    ax_win = fig.add_axes([0.05, 0.22, 0.28, 0.16])
+    ax_win.set_axis_off()
+    ax_win.set_xlim(0, 1)
+    ax_win.set_ylim(0, 1)
+    rect_win = patches.FancyBboxPatch((0, 0), 1, 1, boxstyle="round,pad=0,rounding_size=0.1", fc="#1de9b6", ec="none")
+    ax_win.add_patch(rect_win)
+    ax_win.text(0.1, 0.75, "TOTAL WINS:", color='#004d40', fontsize=16, fontweight='bold', va='center')
+    ax_win.text(0.1, 0.35, f"{wins}", color='#000000', fontsize=48, fontweight='bold', va='center')
+    circ_win = plt.Circle((0.85, 0.5), 0.22, color='none', ec='#004d40', lw=3)
+    ax_win.add_patch(circ_win)
+    ax_win.text(0.85, 0.5, "✓", color='#004d40', fontsize=28, fontweight='bold', ha='center', va='center')
+
+    # LOSE Box (Red)
+    ax_lose = fig.add_axes([0.35, 0.22, 0.28, 0.16])
+    ax_lose.set_axis_off()
+    ax_lose.set_xlim(0, 1)
+    ax_lose.set_ylim(0, 1)
+    rect_lose = patches.FancyBboxPatch((0, 0), 1, 1, boxstyle="round,pad=0,rounding_size=0.1", fc="#ef5350", ec="none")
+    ax_lose.add_patch(rect_lose)
+    ax_lose.text(0.1, 0.75, "TOTAL LOSSES:", color='#4d0000', fontsize=16, fontweight='bold', va='center')
+    ax_lose.text(0.1, 0.35, f"{losses}", color='#ffffff', fontsize=48, fontweight='bold', va='center')
+    shield = patches.RegularPolygon((0.85, 0.5), numVertices=6, radius=0.25, orientation=np.pi/6, color='none', ec='#4d0000', lw=3)
+    ax_lose.add_patch(shield)
+
+    # --- 5. WATERMARK ---
+    ax_wm = fig.add_axes([0.65, 0.22, 0.30, 0.16])
+    ax_wm.set_axis_off()
+    ax_wm.text(0.5, 0.5, "DEV - WANG LIN", color='#ffffff', fontsize=26, fontweight='bold', style='italic', ha='center', va='center')
+    ax_wm.plot([0.1, 0.9], [0.30, 0.30], color='#ffffff', lw=3)
+    ax_wm.plot([0.1, 0.9], [0.70, 0.70], color='#ffffff', lw=3)
+
+    # --- 6. TIMELINE (Dots) ---
+    fig.text(0.05, 0.16, "FULL PREDICTION TIMELINE (Oldest to Latest)", color='#a3a8b5', fontsize=12, fontweight='bold', ha='left')
+    
+    ax_time = fig.add_axes([0.05, 0.05, 0.9, 0.08])
+    ax_time.set_axis_off()
+    ax_time.set_xlim(-0.5, 19.5)
+    ax_time.set_ylim(0, 1)
+    
+    if len(dots_list) > 0:
+        for i, (char, color) in enumerate(dots_list):
+            ax_time.scatter(i, 0.5, s=600, c=color, edgecolors='none', zorder=5)
+            ax_time.text(i, 0.5, char, color='#ffffff', fontsize=14, fontweight='bold', ha='center', va='center', zorder=6)
+
+    # 💡 ဖြတ်ချခြင်းမပြုဘဲ 1024x768 အတိအကျထုတ်ယူသည်
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=100, facecolor='#1c1f26') 
+    buf.seek(0)
+    plt.close(fig)
+    return buf
+    
+    
+    
+    
 def generate_winrate_chart(predictions):
     # ... (Keep your existing generate_winrate_chart function exactly as it is) ...
     pass # Replaced with your original code in actual use to save space here.
