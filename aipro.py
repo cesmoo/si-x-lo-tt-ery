@@ -626,7 +626,7 @@ async def send_welcome(message: types.Message):
     await message.reply("👋 မင်္ဂလာပါ။ စနစ်က Zero-Lag Timer ဖြင့် လုံးဝတိကျစွာ အလုပ်လုပ်နေပါပြီ။")
 
 async def main():
-    print("🚀 Aiogram Bigwin Bot (Sci-Fi Trend + Anti-Lag Edition) စတင်နေပါပြီ...\n")
+    print("🚀 Aiogram SIX-LOTTERY Bot (Sci-Fi Trend + Anti-Lag Edition) စတင်နေပါပြီ...\n")
     await bot.delete_webhook(drop_pending_updates=True)
     asyncio.create_task(auto_broadcaster())
     await dp.start_polling(bot)
