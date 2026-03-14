@@ -113,23 +113,27 @@ async def init_playwright():
         await PW_PAGE.wait_for_timeout(3000)
         
         # ၂။ ဖုန်းနံပါတ်နှင့် ပတ်စ်ဝါဒ် ရိုက်ထည့်ခြင်း
-        # 💡 [Fix] Website တွင် +95 ရှိပြီးသားဖြစ်၍ ဖုန်းနံပါတ်ရှေ့မှ 95 ကို ဖြတ်ထုတ်မည်
         login_phone = USERNAME
         if login_phone.startswith("95") and len(login_phone) > 9:
-            login_phone = login_phone[2:] # ရှေ့ဆုံးက 95 ကို ဖြတ်မည်
+            login_phone = login_phone[2:]
             
-        inputs = await PW_PAGE.locator("input").all()
-        if len(inputs) >= 2:
-            print(f"🌐 ဖုန်းနံပါတ် ({login_phone}) နှင့် ပတ်စ်ဝါဒ် ထည့်သွင်းနေပါသည်...")
-            await inputs[0].fill(login_phone) 
-            await inputs[1].fill(PASSWORD)
+        print(f"🌐 ဖုန်းနံပါတ် ({login_phone}) နှင့် ပတ်စ်ဝါဒ် ထည့်သွင်းနေပါသည်...")
+        
+        # 💡 [Fix] မျက်စိဖြင့် မြင်ရသော (:visible) Input အကွက်များကိုသာ သီးသန့်ရွေးချယ်မည်
+        visible_inputs = await PW_PAGE.locator("input:visible").all()
+        
+        if len(visible_inputs) >= 2:
+            await visible_inputs[0].fill(login_phone) # ဖုန်းနံပါတ်အကွက်
+            await visible_inputs[1].fill(PASSWORD)    # Password အကွက်
         else:
-            print("⚠️ Input အကွက်များကို ရှာမတွေ့ပါ။")
+            # အကယ်၍ အထက်ပါနည်းလမ်း မရပါက Type ဖြင့် တိုက်ရိုက်ရှာထည့်မည်
+            await PW_PAGE.locator("input[type='text'], input[type='tel']").first.fill(login_phone)
+            await PW_PAGE.locator("input[type='password']").first.fill(PASSWORD)
             
         await PW_PAGE.wait_for_timeout(1000)
         
         # ၃။ 'လော့ဂ်အင်' ခလုတ်ကို နှိပ်ခြင်း
-        buttons = await PW_PAGE.locator("button").all()
+        buttons = await PW_PAGE.locator("button:visible").all()
         login_clicked = False
         for btn in buttons:
             btn_class = await btn.get_attribute("class")
@@ -183,16 +187,30 @@ async def login_and_get_token(session: aiohttp.ClientSession):
         return True
     return False
 
+# ==========================================
+# 💳 3. BALANCE FETCHING FUNCTION
+# ==========================================
 async def get_user_balance(session):
     global CURRENT_TOKEN
     if not CURRENT_TOKEN: return None
+    
     headers = BASE_HEADERS.copy()
     headers['authorization'] = CURRENT_TOKEN
-    json_data = {'language': 7, 'random': '6e5c9c6f8d824252b800b40d6a0af244', 'signature': '6E635C1F332EF7D017FF2B7370160E4D', 'timestamp': int(time.time())}
+    json_data = {
+        'language': 7,
+        'random': '6e5c9c6f8d824252b800b40d6a0af244',
+        'signature': '6E635C1F332EF7D017FF2B7370160E4D',
+        'timestamp': int(time.time()),
+    }
+    
     try:
         res = await fetch_with_retry(session, 'https://6lotteryapi.com/api/webapi/GetBalance', headers, json_data)
-        if res and res.get('code') == 0: return float(res.get('data', {}).get('balance', 0))
-    except Exception: pass
+        if res and res.get('code') == 0:
+            data = res.get('data', {})
+            amt = data.get('amount', data.get('balance', 0))
+            return float(amt)
+    except Exception:
+        pass
     return None
 
 # ==========================================
