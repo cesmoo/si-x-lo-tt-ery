@@ -350,51 +350,52 @@ async def check_game_and_predict(session: aiohttp.ClientSession):
             LAST_KNOWN_STATE.update({"table_str": table_str, "next_issue": next_issue, "predicted": predicted, "final_prob": final_prob, "reason": reason, "bet_advice": bet_advice})
             
             # ပွဲသစ်ထွက်ချိန်တွင် ပုံဆွဲပြီး တင်ပေးမည်
+            # ပွဲသစ်ထွက်ချိန်တွင် ပုံဆွဲပြီး တင်ပေးမည်
             if is_new_issue or not MAIN_MESSAGE_ID:
-                # Generate Chart function ကို အပြည့်အစုံ ပြန်ထည့်ပေးပါ
-                pass 
-
-    elif data and data.get('code') != 0:
-        API_ERROR_COUNT += 1
-        if data.get('code') == 401: CURRENT_TOKEN = ""
-    else:
-        API_ERROR_COUNT += 1
-
-    # Timer & Editing logic (ယခင်အတိုင်း ပြင်ဆင်ရန်မလိုပါ)
-    current_time = time.time()
-    if current_time - LAST_CAPTION_EDIT_TIME >= 1.5:
-        if MAIN_MESSAGE_ID and LAST_KNOWN_STATE["next_issue"] != "Loading":
-            sec_left = 60 - (int(time.time()) % 60)
-            if sec_left == 60: sec_left = 0 
-            iss = LAST_KNOWN_STATE['next_issue']
-            iss_display = f"{iss[:3]}**{iss[-4:]}" if len(iss) > 4 else iss
-            
-            tg_caption = (
-                f"<b>🏆 SIX-LOTTERY (AI PRO EDITION)</b>\n"
-                f"⏰ Next Result In: <b>{sec_left}s</b>\n\n"
-                f"{LAST_KNOWN_STATE['table_str']}\n"
-                f"🅿️ <b>Period:</b> {iss_display}\n"
-                f"🎯 <b>Predict: {LAST_KNOWN_STATE['predicted']}</b>\n"
-                f"📈 <b>ဖြစ်နိုင်ခြေ:</b> {LAST_KNOWN_STATE['final_prob']}%\n"
-                f"💡 <b>အကြောင်းပြချက်:</b>\n{LAST_KNOWN_STATE['reason']}\n"
-                f"━━━━━━━━━━━━━━━━━━\n{LAST_KNOWN_STATE['bet_advice']}"
-            )
-            if API_ERROR_COUNT >= 3: tg_caption = f"⚠️ <b>[API သော့ သက်တမ်းကုန်သွားပါပြီ! အသစ်လဲပေးပါ]</b>\n\n" + tg_caption
-
-            try:
-                await bot.edit_message_caption(chat_id=TELEGRAM_CHANNEL_ID, message_id=MAIN_MESSAGE_ID, caption=tg_caption, parse_mode="HTML")
+                img_buf = await asyncio.to_thread(generate_winrate_chart, session_preds)
+                unique_filename = f"winrate_chart_{int(time.time())}.png"
+                photo = BufferedInputFile(img_buf.read(), filename=unique_filename)
+                
+                sec_left = 60 - (int(time.time()) % 60)
+                if sec_left == 60: sec_left = 0
+                iss_display = f"{next_issue[:3]}**{next_issue[-4:]}"
+                
+                tg_caption = (
+                    f"<b>🏆 SIX-LOTTERY (AI PRO EDITION)</b>\n"
+                    f"⏰ Next Result In: <b>{sec_left}s</b>\n\n"
+                    f"{table_str}\n"
+                    f"🅿️ <b>Period:</b> {iss_display}\n"
+                    f"🎯 <b>Predict: {predicted}</b>\n"
+                    f"📈 <b>ဖြစ်နိုင်ခြေ:</b> {final_prob}%\n"
+                    f"💡 <b>အကြောင်းပြချက်:</b>\n{reason}\n"
+                    f"━━━━━━━━━━━━━━━━━━\n{bet_advice}"
+                )
+                
+                if MAIN_MESSAGE_ID:
+                    try:
+                        media = InputMediaPhoto(media=photo, caption=tg_caption, parse_mode="HTML")
+                        await bot.edit_message_media(chat_id=TELEGRAM_CHANNEL_ID, message_id=MAIN_MESSAGE_ID, media=media)
+                    except Exception as e:
+                        # Edit လုပ်လို့မရရင် အသစ်ပြန်ပို့မည်
+                        msg = await bot.send_photo(chat_id=TELEGRAM_CHANNEL_ID, photo=photo, caption=tg_caption)
+                        MAIN_MESSAGE_ID = msg.message_id
+                else:
+                    msg = await bot.send_photo(chat_id=TELEGRAM_CHANNEL_ID, photo=photo, caption=tg_caption)
+                    MAIN_MESSAGE_ID = msg.message_id
+                
                 LAST_CAPTION_EDIT_TIME = time.time()
-            except TelegramRetryAfter as e: LAST_CAPTION_EDIT_TIME = time.time() + e.retry_after
-            except Exception: pass
+                return # ပုံအသစ်တင်ပြီးပါက ဤနေရာမှရပ်မည်။ (Timer ကို Zero-Lag ဖြင့် သွားရန်)
 
 async def auto_broadcaster():
     await init_db() 
     async with aiohttp.ClientSession() as session:
         await login_and_get_token(session)
         while True:
-            try: await check_game_and_predict(session)
-            except Exception: pass
-            await asyncio.sleep(0.5) 
+            try: 
+                await check_game_and_predict(session)
+            except Exception as e: 
+                print(f"⚠️ ယာယီ Error ဖြစ်ပေါ်နေသည်: {e}") # Error ကို Print ထုတ်ကြည့်ရန်
+            await asyncio.sleep(0.5)
 
 @dp.message(Command("start"))
 async def send_welcome(message: types.Message):
