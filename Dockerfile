@@ -14,8 +14,14 @@ COPY requirements.txt .
 # Library များကို Install လုပ်ခြင်း (Image Size သေးငယ်စေရန် cache များကို ရှင်းလင်းမည်)
 RUN pip install --no-cache-dir -r requirements.txt
 
+# 💡 [အရေးကြီးသော အဆင့်သစ်]
+# Playwright Browser Automation အတွက် Chromium Browser နှင့် 
+# ၎င်းအလုပ်လုပ်ရန် လိုအပ်သော OS System Library အားလုံးကို Install လုပ်ခြင်း
+RUN playwright install chromium
+RUN playwright install-deps chromium
+
 # ကျန်ရှိနေသော Code ဖိုင်များအားလုံးကို Container ထဲသို့ ကူးထည့်ခြင်း
 COPY . .
 
-# Bot ကို စတင် Run မည့် Command
+# Bot ကို စတင် Run မည့် Command (အစ်ကို့ရဲ့ Python ဖိုင်နာမည် အတိုင်းထားပါ)
 CMD ["python", "aipro.py"]
