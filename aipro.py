@@ -151,7 +151,7 @@ async def get_user_balance(session):
         'language': 7,
         'random': '6e5c9c6f8d824252b800b40d6a0af244',
         'signature': '6E635C1F332EF7D017FF2B7370160E4D',
-        'timestamp': int(time.time()),
+        'timestamp': 1773502604,
     }
     try:
         res = await fetch_with_retry(session, 'https://6lotteryapi.com/api/webapi/GetBalance', headers, json_data)
@@ -184,7 +184,7 @@ async def execute_auto_bet(session, issue_number, predicted_size, streak_count):
         'language': 7,
         'random': 'e4a8a3bc251f4e11ab07873aac3290a4', 
         'signature': '6FDB1170F9B487759CD710E58E35E302', 
-        'timestamp': int(time.time()),
+        'timestamp': 1773501104,
     }
     
     try:
