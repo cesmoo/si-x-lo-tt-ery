@@ -113,8 +113,8 @@ async def login_and_get_token(session: aiohttp.ClientSession):
         'pwd': PASSWORD or 'Mitheint11',
         'phonetype': 1, 'logintype': 'mobile', 'packId': '',
         'deviceId': 'b9b753a9f874897574d7fa72ff84374c', 'language': 7,
-        'random': '457a0935e8b54d63924ce243e028f789',
-        'signature': '6C2BCE370032980C33A1FC41A327DF09', 'timestamp': int(time.time()),
+        'random': 'd52558cb60e74d91bcaaf17d89a06d0e',
+        'signature': '507A2C45C167BADFE188E95556081FAC', 'timestamp': 1773497660,
     }
     data = await fetch_with_retry(session, 'https://6lotteryapi.com/api/webapi/Login', BASE_HEADERS, json_data)
     if data and data.get('code') == 0:
@@ -266,9 +266,9 @@ async def check_game_and_predict(session: aiohttp.ClientSession):
 
     json_data = {
         'pageSize': 10, 'pageNo': 1, 'typeId': 1, 'language': 7,
-        'random': '736ea5fe7d1744008714320d2cfbbed4',
-        'signature': '9BE5D3A057D1938B8210BA32222A993C',
-        'timestamp': int(time.time()), # Dynamic Timestamp
+        'random': '94e014425d51400a91365be5ee3d78ab',
+        'signature': '72493D8502DB7CF714BAD0DBBE842D1A',
+        'timestamp': 1773497780, # Dynamic Timestamp
     }
 
     data = await fetch_with_retry(session, 'https://6lotteryapi.com/api/webapi/GetNoaverageEmerdList', headers, json_data)
