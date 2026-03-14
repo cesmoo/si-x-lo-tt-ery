@@ -57,9 +57,8 @@ BASE_HEADERS = {'authority': '6lotteryapi.com', 'accept': 'application/json, tex
 PW_PAGE, PW_CONTEXT, PW_BROWSER = None, None, None
 
 # ==========================================
-# 🌐 2. PLAYWRIGHT BROWSER INITIALIZATION (SINGLE LOGIN FIX)
+# 🌐 2. PLAYWRIGHT BROWSER INITIALIZATION (TIMEOUT & FORCE CLICK FIX)
 # ==========================================
-# 💡 [FIX] Browser ၏ Network ထဲမှ Token ကို ကြားဖြတ်ယူမည့် Function
 async def catch_token(response):
     global CURRENT_TOKEN
     if "Login" in response.url and response.request.method == "POST":
@@ -84,13 +83,17 @@ async def init_playwright():
         )
         PW_PAGE = await PW_CONTEXT.new_page()
         
-        # Token ဖမ်းရန် Listener တပ်မည်
+        # Timeout ကို ပုံမှန် 30s မှ 60s အထိ တိုးပေးထားမည်
+        PW_PAGE.set_default_timeout(60000)
+        
         PW_PAGE.on("response", catch_token)
         
         print("🌐 Login စာမျက်နှာသို့ သွားနေပါသည်...")
-        await PW_PAGE.goto("https://www.6win566.com/#/login") 
-        await PW_PAGE.wait_for_load_state("networkidle") 
-        await PW_PAGE.wait_for_timeout(3000)
+        try:
+            await PW_PAGE.goto("https://www.6win566.com/#/login", timeout=60000) 
+            await PW_PAGE.wait_for_timeout(5000)
+        except Exception as e:
+            print(f"⚠️ ဝင်ရောက်မှု အနည်းငယ်ကြာနေပါသည်... ({e})")
         
         login_phone = USERNAME
         if login_phone.startswith("95") and len(login_phone) > 9: 
@@ -98,41 +101,57 @@ async def init_playwright():
             
         print(f"🌐 ဖုန်းနံပါတ် ({login_phone}) နှင့် ပတ်စ်ဝါဒ် ထည့်သွင်းနေပါသည်...")
         
-        # 💡 [FIX] .fill() ဖြင့် တိုက်ရိုက်ဖြည့်မည်
-        inputs = PW_PAGE.locator("input:visible")
-        if await inputs.count() >= 2:
-            await inputs.nth(0).fill(login_phone)
-            await inputs.nth(1).fill(PASSWORD)
-            await PW_PAGE.wait_for_timeout(1000)
+        visible_inputs = await PW_PAGE.locator("input:visible").all()
+        if len(visible_inputs) >= 2:
+            await visible_inputs[0].click(force=True)
+            await visible_inputs[0].press_sequentially(login_phone, delay=50) 
+            await PW_PAGE.wait_for_timeout(500)
             
-            # 💡 [FIX] "မှတ်ထားပါ" checkbox ရှိလျှင် နှိပ်မည်
+            await visible_inputs[1].click(force=True)
+            await visible_inputs[1].press_sequentially(PASSWORD, delay=50)
+            await PW_PAGE.wait_for_timeout(500)
+            
             checkbox = PW_PAGE.locator(".van-checkbox__icon")
             if await checkbox.count() > 0:
-                await checkbox.first.click()
+                await checkbox.first.click(force=True)
                 await PW_PAGE.wait_for_timeout(500)
         
-        print("🌐 လော့ဂ်အင် ခလုတ်ကို နှိပ်နေပါသည်...")
-        # 💡 [FIX] အနီရောင် ခလုတ်ကို အတိအကျ နှိပ်မည်
-        await PW_PAGE.locator("button.van-button--danger:visible").first.click()
+        buttons = await PW_PAGE.locator("button:visible").all()
+        for btn in buttons:
+            btn_class = await btn.get_attribute("class") or ""
+            if "van-button--danger" in btn_class: 
+                print("🌐 လော့ဂ်အင် ခလုတ်ကို နှိပ်နေပါသည်...")
+                try:
+                    # 💡 [FIX] ကြော်ငြာပိတ်နေလျှင်လည်း အတင်းနှိပ်မည် (force=True)
+                    await btn.click(force=True, timeout=15000)
+                except Exception as e:
+                    print(f"⚠️ Click Error (ဒါပေမယ့် ရှေ့ဆက်သွားမည်): {e}")
+                break
              
-        await PW_PAGE.wait_for_timeout(5000)
+        await PW_PAGE.wait_for_timeout(6000)
         
         current_url = PW_PAGE.url
         if "login" in current_url:
             print("❌ Login မအောင်မြင်ပါ။ စကားဝှက် သို့မဟုတ် ဖုန်းနံပါတ် မှားယွင်းနေပါသည်။")
-            await PW_PAGE.screenshot(path="login_failed.png", full_page=True)
+            try: await PW_PAGE.screenshot(path="login_failed.png", full_page=True)
+            except: pass
             return 
         
         print("🌐 Wingo 1 Min စာမျက်နှာသို့ သွားနေပါသည်...")
-        await PW_PAGE.goto("https://www.6win566.com/#/home/AllLotteryGames/WinGo?type=1")
-        await PW_PAGE.wait_for_load_state("networkidle")
-        await PW_PAGE.wait_for_timeout(5000)
+        try:
+            await PW_PAGE.goto("https://www.6win566.com/#/home/AllLotteryGames/WinGo?type=1", timeout=60000)
+            # 💡 [FIX] networkidle အစား အချိန်အတိအကျ (8 စက္ကန့်) သာ စောင့်ခိုင်းမည်
+            await PW_PAGE.wait_for_timeout(8000)
+        except Exception as e:
+            print(f"⚠️ စာမျက်နှာ အပြည့်အဝမပွင့်သေးပါ (ရှေ့ဆက်သွားမည်): {e}")
         
         await PW_PAGE.mouse.click(10, 10)
+        await PW_PAGE.wait_for_timeout(1000)
         print("✅ Playwright Login & Navigation Completed.")
         
     except Exception as e:
-        print(f"❌ Playwright Init Error: {e}")
+        import traceback
+        print(f"❌ Playwright Init Error: {traceback.format_exc()}")
         try: await PW_PAGE.screenshot(path="init_error.png", full_page=True)
         except: pass
 
