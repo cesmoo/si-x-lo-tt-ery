@@ -57,7 +57,7 @@ BASE_HEADERS = {'authority': '6lotteryapi.com', 'accept': 'application/json, tex
 PW_PAGE, PW_CONTEXT, PW_BROWSER = None, None, None
 
 # ==========================================
-# 🌐 2. PLAYWRIGHT BROWSER INITIALIZATION (HUMAN-TYPING FIX)
+# 🌐 2. PLAYWRIGHT BROWSER INITIALIZATION
 # ==========================================
 async def init_playwright():
     global PW_PAGE, PW_CONTEXT, PW_BROWSER
@@ -77,13 +77,13 @@ async def init_playwright():
         await PW_PAGE.wait_for_timeout(3000)
         
         login_phone = USERNAME
-        if login_phone.startswith("95") and len(login_phone) > 9: login_phone = login_phone[2:]
+        if login_phone.startswith("95") and len(login_phone) > 9: 
+            login_phone = login_phone[2:]
             
         print(f"🌐 ဖုန်းနံပါတ် ({login_phone}) နှင့် ပတ်စ်ဝါဒ် ထည့်သွင်းနေပါသည်...")
         
         visible_inputs = await PW_PAGE.locator("input:visible").all()
         if len(visible_inputs) >= 2:
-            # 💡 [FIX] လူကိုယ်တိုင် ရိုက်ထည့်သကဲ့သို့ တစ်လုံးချင်းစီ ရိုက်ထည့်မည် (press_sequentially)
             await visible_inputs[0].click()
             await visible_inputs[0].press_sequentially(login_phone, delay=50) 
             await PW_PAGE.wait_for_timeout(500)
@@ -102,12 +102,11 @@ async def init_playwright():
              
         await PW_PAGE.wait_for_timeout(5000)
         
-        # 💡 [STRICT CHECK] Login တကယ် အောင်မြင်မှု ရှိ/မရှိ စစ်ဆေးမည်
         current_url = PW_PAGE.url
         if "login" in current_url:
             print("❌ Login မအောင်မြင်ပါ။ စကားဝှက် သို့မဟုတ် ဖုန်းနံပါတ် မှားယွင်းနေပါသည်။")
             await PW_PAGE.screenshot(path="login_failed.png", full_page=True)
-            return # ဆက်မလုပ်တော့ဘဲ ရပ်မည်
+            return 
         
         print("🌐 Wingo 1 Min စာမျက်နှာသို့ သွားနေပါသည်...")
         await PW_PAGE.goto("https://www.6win566.com/#/home/AllLotteryGames/WinGo?type=1")
@@ -123,7 +122,9 @@ async def init_playwright():
         except: pass
 
 async def init_db():
-    try: await history_collection.create_index("issue_number", unique=True); await predictions_collection.create_index("issue_number", unique=True)
+    try: 
+        await history_collection.create_index("issue_number", unique=True)
+        await predictions_collection.create_index("issue_number", unique=True)
     except Exception: pass
 
 async def fetch_with_retry(session, url, headers, json_data, retries=1):
@@ -138,37 +139,25 @@ async def login_and_get_token(session: aiohttp.ClientSession):
     global CURRENT_TOKEN
     json_data = {'username': USERNAME, 'pwd': PASSWORD, 'phonetype': 1, 'logintype': 'mobile', 'packId': '', 'deviceId': 'b9b753a9f874897574d7fa72ff84374c', 'language': 7, 'random': '457a0935e8b54d63924ce243e028f789', 'signature': '6C2BCE370032980C33A1FC41A327DF09', 'timestamp': int(time.time())}
     data = await fetch_with_retry(session, 'https://6lotteryapi.com/api/webapi/Login', BASE_HEADERS, json_data)
-    if data and data.get('code') == 0: CURRENT_TOKEN = f"Bearer {data.get('data', {}).get('token', '')}"; return True
+    if data and data.get('code') == 0: 
+        CURRENT_TOKEN = f"Bearer {data.get('data', {}).get('token', '')}"
+        return True
     return False
 
-# ==========================================
-# 💳 3. BALANCE FETCHING FUNCTION
-# ==========================================
 async def get_user_balance(session):
     global CURRENT_TOKEN
     if not CURRENT_TOKEN: return None
-    
     headers = BASE_HEADERS.copy()
     headers['authorization'] = CURRENT_TOKEN
-    json_data = {
-        'language': 7,
-        'random': '6e5c9c6f8d824252b800b40d6a0af244',
-        'signature': '6E635C1F332EF7D017FF2B7370160E4D',
-        'timestamp': int(time.time()),
-    }
-    
+    json_data = {'language': 7, 'random': '6e5c9c6f8d824252b800b40d6a0af244', 'signature': '6E635C1F332EF7D017FF2B7370160E4D', 'timestamp': int(time.time())}
     try:
         res = await fetch_with_retry(session, 'https://6lotteryapi.com/api/webapi/GetBalance', headers, json_data)
-        if res and res.get('code') == 0:
-            data = res.get('data', {})
-            amt = data.get('amount', data.get('balance', 0))
-            return float(amt)
-    except Exception:
-        pass
+        if res and res.get('code') == 0: return float(res.get('data', {}).get('balance', 0))
+    except Exception: pass
     return None
 
 # ==========================================
-# 💰 3. AUTO-BETTING FUNCTION (HUMAN-TYPING FIX)
+# 💰 3. AUTO-BETTING FUNCTION
 # ==========================================
 async def execute_auto_bet_via_browser(issue_number, predicted_size, streak_count):
     global PW_PAGE
@@ -177,8 +166,10 @@ async def execute_auto_bet_via_browser(issue_number, predicted_size, streak_coun
     dynamic_bet_count = 2 ** streak_count
     
     try:
-        if predicted_size == "BIG": await PW_PAGE.click("xpath=//*[contains(text(), 'အကြီး') or contains(text(), 'Big')]", timeout=10000)
-        else: await PW_PAGE.click("xpath=//*[contains(text(), 'အသေး') or contains(text(), 'Small')]", timeout=10000)
+        if predicted_size == "BIG": 
+            await PW_PAGE.click("xpath=//*[contains(text(), 'အကြီး') or contains(text(), 'Big')]", timeout=10000)
+        else: 
+            await PW_PAGE.click("xpath=//*[contains(text(), 'အသေး') or contains(text(), 'Small')]", timeout=10000)
             
         await PW_PAGE.wait_for_timeout(1000) 
         
@@ -187,7 +178,6 @@ async def execute_auto_bet_via_browser(issue_number, predicted_size, streak_coun
             await num_input.first.click(timeout=5000)
             await PW_PAGE.keyboard.press("Control+A") 
             await PW_PAGE.keyboard.press("Backspace") 
-            # 💡 [FIX] လောင်းကြေးအဆကိုလည်း လူကိုယ်တိုင်ရိုက်သကဲ့သို့ ရိုက်ထည့်မည်
             await num_input.first.press_sequentially(str(dynamic_bet_count), delay=50) 
             await PW_PAGE.wait_for_timeout(500)
         
@@ -203,50 +193,122 @@ async def execute_auto_bet_via_browser(issue_number, predicted_size, streak_coun
         except: return False, f"⚠️ UI Error: {err_msg}", False
 
 # ==========================================
-# 🧠 4. THE ULTIMATE AI PRO
+# 🧠 4. THE ULTIMATE AI PRO (SYNTAX FIXED)
 # ==========================================
 def ultimate_ai_predict(history_docs, recent_preds, current_issue):
     global AI_CACHE
-    if AI_CACHE["last_trained_issue"] == current_issue and AI_CACHE["cached_prediction"]: return AI_CACHE["cached_prediction"], AI_CACHE["cached_prob"], AI_CACHE["cached_logic"]
-    if len(history_docs) < 20: return "BIG", 55.0, "⏳ Data စုဆောင်းဆဲ..."
-    docs = list(reversed(history_docs))[-500:]; sizes = [d.get('size', 'BIG') for d in docs]; numbers = [int(d.get('number', 0)) for d in docs]; parities = [d.get('parity', 'EVEN') for d in docs]
-    score_b, score_s, logic_used = 0.0, 0.0, ""; ml_weight, pattern_weight, house_edge_weight = 2.0, 1.5, 2.0
-    if len(recent_preds) >= 5 and sum(1 for p in recent_preds[:5] if p.get('win_lose') == 'WIN ✅') <= 2: ml_weight, pattern_weight = 3.0, 0.5; logic_used += "🔄 <b>Auto-Tuning:</b> ML အပေါ် ပိုမိုအားပြုထားသည်။\n"
-    last_100_sizes = sizes[-100:]; b_100, s_100 = last_100_sizes.count('BIG'), last_100_sizes.count('SMALL')
-    if b_100 > (len(last_100_sizes) * 0.55): score_s += house_edge_weight; logic_used += f"├ ⚖️ <b>House Edge:</b> SMALL သို့ ဆွဲချမည်\n"
-    elif s_100 > (len(last_100_sizes) * 0.55): score_b += house_edge_weight; logic_used += f"├ ⚖️ <b>House Edge:</b> BIG သို့ ဆွဲချမည်\n"
-    X, y, window = [], [], 5 
+    if AI_CACHE["last_trained_issue"] == current_issue and AI_CACHE["cached_prediction"]: 
+        return AI_CACHE["cached_prediction"], AI_CACHE["cached_prob"], AI_CACHE["cached_logic"]
+
+    if len(history_docs) < 20: 
+        return "BIG", 55.0, "⏳ Data စုဆောင်းဆဲ..."
+
+    docs = list(reversed(history_docs))[-500:]
+    sizes = [d.get('size', 'BIG') for d in docs]
+    numbers = [int(d.get('number', 0)) for d in docs]
+    parities = [d.get('parity', 'EVEN') for d in docs]
+    
+    score_b = 0.0
+    score_s = 0.0
+    logic_used = ""
+    ml_weight = 2.0
+    pattern_weight = 1.5
+    house_edge_weight = 2.0
+    
+    if len(recent_preds) >= 5:
+        wins = sum(1 for p in recent_preds[:5] if p.get('win_lose') == 'WIN ✅')
+        if wins <= 2: 
+            ml_weight = 3.0
+            pattern_weight = 0.5
+            logic_used += "🔄 <b>Auto-Tuning:</b> ML အပေါ် ပိုမိုအားပြုထားသည်။\n"
+
+    last_100_sizes = sizes[-100:]
+    b_100 = last_100_sizes.count('BIG')
+    s_100 = last_100_sizes.count('SMALL')
+    
+    if b_100 > (len(last_100_sizes) * 0.55): 
+        score_s += house_edge_weight
+        logic_used += f"├ ⚖️ <b>House Edge:</b> SMALL သို့ ဆွဲချမည်\n"
+    elif s_100 > (len(last_100_sizes) * 0.55): 
+        score_b += house_edge_weight
+        logic_used += f"├ ⚖️ <b>House Edge:</b> BIG သို့ ဆွဲချမည်\n"
+
+    X = []
+    y = []
+    window = 5 
+    
     def encode_size(s): return 1 if s == 'BIG' else 0
     def encode_parity(p): return 1 if p == 'EVEN' else 0
+    
     for i in range(len(sizes) - window):
         row = []
-        for j in range(window): row.extend([encode_size(sizes[i+j]), numbers[i+j], encode_parity(parities[i+j])])
-        row.append(1 if sizes[i+window-1] == sizes[i+window-2] else 0); X.append(row); y.append(encode_size(sizes[i+window]))
+        for j in range(window): 
+            row.extend([encode_size(sizes[i+j]), numbers[i+j], encode_parity(parities[i+j])])
+        row.append(1 if sizes[i+window-1] == sizes[i+window-2] else 0)
+        X.append(row)
+        y.append(encode_size(sizes[i+window]))
+        
     if len(X) > 20:
-        rf_clf = RandomForestClassifier(n_estimators=100, max_depth=7, random_state=42, n_jobs=-1).fit(X, y); gb_clf = GradientBoostingClassifier(n_estimators=100, learning_rate=0.05, max_depth=4, random_state=42).fit(X, y)
+        rf_clf = RandomForestClassifier(n_estimators=100, max_depth=7, random_state=42, n_jobs=-1).fit(X, y)
+        gb_clf = GradientBoostingClassifier(n_estimators=100, learning_rate=0.05, max_depth=4, random_state=42).fit(X, y)
+        
         current_features = []
-        for j in range(1, window + 1): current_features.extend([encode_size(sizes[-j]), numbers[-j], encode_parity(parities[-j])])
+        for j in range(1, window + 1): 
+            current_features.extend([encode_size(sizes[-j]), numbers[-j], encode_parity(parities[-j])])
         current_features.append(1 if sizes[-1] == sizes[-2] else 0)
-        rf_pred, rf_prob = rf_clf.predict([current_features])[0], max(rf_clf.predict_proba([current_features])[0]); gb_pred, gb_prob = gb_clf.predict([current_features])[0], max(gb_clf.predict_proba([current_features])[0])
+        
+        rf_pred = rf_clf.predict([current_features])[0]
+        rf_prob = max(rf_clf.predict_proba([current_features])[0])
+        gb_pred = gb_clf.predict([current_features])[0]
+        gb_prob = max(gb_clf.predict_proba([current_features])[0])
+        
         if rf_pred == gb_pred:
-            if rf_pred == 1: score_b += (rf_prob * ml_weight * 1.5)
-            else: score_s += (rf_prob * ml_weight * 1.5)
+            if rf_pred == 1: 
+                score_b += (rf_prob * ml_weight * 1.5)
+            else: 
+                score_s += (rf_prob * ml_weight * 1.5)
             logic_used += "├ 🤖 <b>AI Ensemble:</b> Algorithm ၂ မျိုးလုံး တူညီသည်။\n"
         else:
-            best_prob, best_pred = max(rf_prob, gb_prob), rf_pred if rf_prob > gb_prob else gb_pred
-            if best_pred == 1: score_b += (best_prob * ml_weight)
-            else: score_s += (best_prob * ml_weight)
+            best_prob = max(rf_prob, gb_prob)
+            best_pred = rf_pred if rf_prob > gb_prob else gb_pred
+            if best_pred == 1: 
+                score_b += (best_prob * ml_weight)
+            else: 
+                score_s += (best_prob * ml_weight)
             logic_used += "├ 🤖 <b>AI Prediction:</b> Data မှတ်တမ်းများအရ ခန့်မှန်းသည်။\n"
+
+    # 💡 Syntax Error ရှင်းထားသော နေရာ
     if len(sizes) >= 3:
         if sizes[-1] != sizes[-2] and sizes[-2] != sizes[-3]:
             pred_pattern = 'BIG' if sizes[-1] == 'SMALL' else 'SMALL'
-            if pred_pattern == 'BIG': score_b += pattern_weight; else: score_s += pattern_weight; logic_used += "├ 🏓 <b>Pattern:</b> ခုတ်ချိုး\n"
+            if pred_pattern == 'BIG': 
+                score_b += pattern_weight
+            else: 
+                score_s += pattern_weight
+            logic_used += "├ 🏓 <b>Pattern:</b> ခုတ်ချိုး\n"
         elif sizes[-1] == sizes[-2] == sizes[-3]:
-            if sizes[-1] == 'BIG': score_b += pattern_weight; else: score_s += pattern_weight; logic_used += "├ 🐉 <b>Pattern:</b> အတန်းရှည်\n"
-    final_pred, total_score = "BIG" if score_b > score_s else "SMALL", score_b + score_s
-    if total_score == 0: final_prob, logic_used = 55.0, logic_used + "└ ⚠️ Data မရှိသေးပါ။"
-    else: final_prob = min(max((max(score_b, score_s) / total_score) * 100, 72.0), 98.0) 
-    AI_CACHE.update({"last_trained_issue": current_issue, "cached_prediction": final_pred, "cached_prob": final_prob, "cached_logic": logic_used})
+            if sizes[-1] == 'BIG': 
+                score_b += pattern_weight
+            else: 
+                score_s += pattern_weight
+            logic_used += "├ 🐉 <b>Pattern:</b> အတန်းရှည်\n"
+
+    total_score = score_b + score_s
+    final_pred = "BIG" if score_b > score_s else "SMALL"
+    
+    if total_score == 0: 
+        final_prob = 55.0
+        logic_used += "└ ⚠️ Data မရှိသေးပါ။"
+    else: 
+        final_prob = min(max((max(score_b, score_s) / total_score) * 100, 72.0), 98.0) 
+        
+    AI_CACHE.update({
+        "last_trained_issue": current_issue, 
+        "cached_prediction": final_pred, 
+        "cached_prob": final_prob, 
+        "cached_logic": logic_used
+    })
+    
     return final_pred, final_prob, logic_used
 
 def generate_winrate_chart(predictions):
