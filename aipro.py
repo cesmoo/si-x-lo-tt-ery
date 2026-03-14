@@ -144,16 +144,30 @@ async def login_and_get_token(session: aiohttp.ClientSession):
         return True
     return False
 
+# ==========================================
+# 💳 3. BALANCE FETCHING FUNCTION
+# ==========================================
 async def get_user_balance(session):
     global CURRENT_TOKEN
     if not CURRENT_TOKEN: return None
+    
     headers = BASE_HEADERS.copy()
     headers['authorization'] = CURRENT_TOKEN
-    json_data = {'language': 7, 'random': '6e5c9c6f8d824252b800b40d6a0af244', 'signature': '6E635C1F332EF7D017FF2B7370160E4D', 'timestamp': int(time.time())}
+    json_data = {
+        'language': 7,
+        'random': '6e5c9c6f8d824252b800b40d6a0af244',
+        'signature': '6E635C1F332EF7D017FF2B7370160E4D',
+        'timestamp': int(time.time()),
+    }
+    
     try:
         res = await fetch_with_retry(session, 'https://6lotteryapi.com/api/webapi/GetBalance', headers, json_data)
-        if res and res.get('code') == 0: return float(res.get('data', {}).get('balance', 0))
-    except Exception: pass
+        if res and res.get('code') == 0:
+            data = res.get('data', {})
+            amt = data.get('amount', data.get('balance', 0))
+            return float(amt)
+    except Exception:
+        pass
     return None
 
 # ==========================================
