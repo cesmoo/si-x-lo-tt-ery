@@ -91,39 +91,74 @@ PW_CONTEXT = None
 PW_BROWSER = None
 
 # ==========================================
-# 🌐 2. PLAYWRIGHT BROWSER INITIALIZATION
+# 🌐 2. PLAYWRIGHT BROWSER INITIALIZATION (ROBUST LOGIN)
 # ==========================================
 async def init_playwright():
     global PW_PAGE, PW_CONTEXT, PW_BROWSER
     print("🌐 မျက်မြင်မရသော Browser ကို စတင်ဖွင့်လှစ်နေပါသည်...")
     try:
         p = await async_playwright().start()
-        PW_BROWSER = await p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox']) 
+        PW_BROWSER = await p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu']) 
         PW_CONTEXT = await PW_BROWSER.new_context(
             user_agent="Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",
-            viewport={'width': 414, 'height': 896} # iPhone Size
+            viewport={'width': 414, 'height': 896},
+            locale='en-US' 
         )
         PW_PAGE = await PW_CONTEXT.new_page()
         
+        # ၁။ Login စာမျက်နှာသို့ သွားခြင်း
+        print("🌐 Login စာမျက်နှာသို့ သွားနေပါသည်...")
         await PW_PAGE.goto("https://www.6win566.com/#/login") 
+        await PW_PAGE.wait_for_load_state("networkidle") 
+        await PW_PAGE.wait_for_timeout(3000)
+        
+        # ၂။ ဖုန်းနံပါတ်နှင့် ပတ်စ်ဝါဒ် ရိုက်ထည့်ခြင်း
+        # 💡 [Fix] Website တွင် +95 ရှိပြီးသားဖြစ်၍ ဖုန်းနံပါတ်ရှေ့မှ 95 ကို ဖြတ်ထုတ်မည်
+        login_phone = USERNAME
+        if login_phone.startswith("95") and len(login_phone) > 9:
+            login_phone = login_phone[2:] # ရှေ့ဆုံးက 95 ကို ဖြတ်မည်
+            
+        inputs = await PW_PAGE.locator("input").all()
+        if len(inputs) >= 2:
+            print(f"🌐 ဖုန်းနံပါတ် ({login_phone}) နှင့် ပတ်စ်ဝါဒ် ထည့်သွင်းနေပါသည်...")
+            await inputs[0].fill(login_phone) 
+            await inputs[1].fill(PASSWORD)
+        else:
+            print("⚠️ Input အကွက်များကို ရှာမတွေ့ပါ။")
+            
+        await PW_PAGE.wait_for_timeout(1000)
+        
+        # ၃။ 'လော့ဂ်အင်' ခလုတ်ကို နှိပ်ခြင်း
+        buttons = await PW_PAGE.locator("button").all()
+        login_clicked = False
+        for btn in buttons:
+            btn_class = await btn.get_attribute("class")
+            if btn_class and "van-button--danger" in btn_class: 
+                print("🌐 လော့ဂ်အင် ခလုတ်ကို နှိပ်နေပါသည်...")
+                await btn.click()
+                login_clicked = True
+                break
+        
+        if not login_clicked and len(buttons) > 0:
+             await buttons[0].click()
+             
         await PW_PAGE.wait_for_timeout(5000)
         
-        # ပိုမိုခိုင်မာသော Login XPATH များ အသုံးပြုထားသည်
-        await PW_PAGE.fill("xpath=//input[@type='text' or contains(@placeholder, 'ဖုန်း') or contains(@placeholder, 'Phone')]", USERNAME)
-        await PW_PAGE.fill("xpath=//input[@type='password' or contains(@placeholder, 'စကားဝှက်') or contains(@placeholder, 'Password')]", PASSWORD)
-        await PW_PAGE.wait_for_timeout(1000)
-        await PW_PAGE.click("xpath=//button[contains(., 'လော့ဂ်အင်') or contains(., 'Login')]")
-        
-        await PW_PAGE.wait_for_timeout(4000)
+        # ၄။ Wingo 1 Min ပွဲစဉ် URL သို့ တိုက်ရိုက်သွားရန်
+        print("🌐 Wingo 1 Min စာမျက်နှာသို့ သွားနေပါသည်...")
         await PW_PAGE.goto("https://www.6win566.com/#/home/AllLotteryGames/WinGo?type=1")
-        await PW_PAGE.wait_for_timeout(6000)
+        await PW_PAGE.wait_for_load_state("networkidle")
+        await PW_PAGE.wait_for_timeout(5000)
         
-        # ကြော်ငြာ Popup များကို ကျော်ရန် မျက်နှာပြင်လွတ်ကို ကလစ်နှိပ်ခြင်း
         await PW_PAGE.mouse.click(10, 10)
         await PW_PAGE.wait_for_timeout(1000)
         print("✅ Playwright Login & Navigation Completed.")
+        
     except Exception as e:
         print(f"❌ Playwright Init Error: {e}")
+        try:
+            await PW_PAGE.screenshot(path="init_error.png", full_page=True)
+        except: pass
 
 async def init_db():
     try:
