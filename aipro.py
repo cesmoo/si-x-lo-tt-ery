@@ -123,12 +123,16 @@ async def fetch_with_retry(session, url, headers, json_data, retries=1):
 async def login_and_get_token(session: aiohttp.ClientSession):
     global CURRENT_TOKEN
     json_data = {
-        'username': USERNAME or '959675323878',
-        'pwd': PASSWORD or 'Mitheint11',
-        'phonetype': 1, 'logintype': 'mobile', 'packId': '',
-        'deviceId': 'b9b753a9f874897574d7fa72ff84374c', 'language': 7,
+        'username': '959675323878',
+        'pwd': 'Mitheint11',
+        'phonetype': 1,
+        'logintype': 'mobile',
+        'packId': '',
+        'deviceId': 'b9b753a9f874897574d7fa72ff84374c',
+        'language': 7,
         'random': '457a0935e8b54d63924ce243e028f789',
-        'signature': '6C2BCE370032980C33A1FC41A327DF09', 'timestamp': int(time.time()),
+        'signature': '6C2BCE370032980C33A1FC41A327DF09',
+        'timestamp': 1773328804,
     }
     data = await fetch_with_retry(session, 'https://6lotteryapi.com/api/webapi/Login', BASE_HEADERS, json_data)
     if data and data.get('code') == 0:
@@ -370,11 +374,10 @@ async def check_game_and_predict(session: aiohttp.ClientSession):
 
     json_data = {
         'pageSize': 10, 'pageNo': 1, 'typeId': 1, 'language': 7,
-        'random': '736ea5fe7d1744008714320d2cfbbed4',
+        'random': '736ea5fe7d1744008714320d2cfbbed4', # ကိုယ်တိုင်လာလဲပေးရန်
         'signature': '9BE5D3A057D1938B8210BA32222A993C',
-        'timestamp': int(time.time()),
+        'timestamp': 1773328945,
     }
-
     data = await fetch_with_retry(session, 'https://6lotteryapi.com/api/webapi/GetNoaverageEmerdList', headers, json_data)
     
     if data and data.get('code') == 0:
