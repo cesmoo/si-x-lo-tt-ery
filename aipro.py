@@ -40,7 +40,7 @@ bot = Bot(token=TELEGRAM_BOT_TOKEN, default=DefaultBotProperties(parse_mode=Pars
 dp = Dispatcher()
 
 db_client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
-db = db_client['trxsixlottery_database'] 
+db = db_client['sixlottery_database'] 
 history_collection = db['game_history'] 
 predictions_collection = db['predictions'] 
 
@@ -48,10 +48,22 @@ CURRENT_TOKEN, LAST_PROCESSED_ISSUE, MAIN_MESSAGE_ID, SESSION_START_ISSUE = "", 
 LAST_CAPTION_EDIT_TIME, API_ERROR_COUNT = 0, 0 
 START_OF_ROUND_BALANCE, CURRENT_BALANCE_DISPLAY = 0.0, 0.0
 
+# 🤖 [Auto-Bet System Variables]
+AUTO_BET_ACTIVE = False
+AUTO_BET_BASE_AMOUNT = 100  
+LAST_BET_ISSUE = None 
+ACTUAL_BET_STREAK = 0 # 💡 Auto-Bet အတွက် သီးသန့် Streak မှတ်သားမည့် Variable
+
+# 💡 [USER FINDING] BIG နဲ့ SMALL အတွက် မှန်ကန်သော Select Type
+BET_MAPPING = {
+    "BIG": 13,   
+    "SMALL": 14  
+}
+
 LAST_KNOWN_STATE = {
     "table_str": "<code>Data Loading...</code>", "next_issue": "Loading", "predicted": "Wait",
     "final_prob": 0.0, "reason": "Syncing Data...", "bet_advice": "...",
-    "balance": "💳 <b>Balance:</b> Syncing...", "profit": "📊 <b>Profit:</b> 0.00 Ks"
+    "autobet": "🔴 <b>OFF</b>", "balance": "💳 <b>Balance:</b> Syncing...", "profit": "📊 <b>Profit:</b> 0.00 Ks"
 }
 AI_CACHE = {"last_trained_issue": None, "rf_model": None, "gb_model": None, "cached_prediction": None, "cached_prob": None, "cached_logic": ""}
 BASE_HEADERS = {'authority': '6lotteryapi.com', 'accept': 'application/json, text/plain, */*', 'content-type': 'application/json;charset=UTF-8', 'origin': 'https://www.6win566.com', 'referer': 'https://www.6win566.com/', 'user-agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36'}
@@ -93,7 +105,67 @@ async def get_user_balance(session):
     return None
 
 # ==========================================
-# 🧠 2. THE ULTIMATE AI PRO V2 (ENHANCED)
+# 💰 2. GET CURRENT ISSUE & API AUTO-BETTING
+# ==========================================
+async def get_current_game_issue(session):
+    """ 💡 GetGameIssue API ကို အသုံးပြု၍ လောင်းခွင့်ရှိသော လက်ရှိပွဲစဉ်ကို အတိအကျ ယူပါမည် """
+    global CURRENT_TOKEN
+    if not CURRENT_TOKEN: return None
+    headers = BASE_HEADERS.copy()
+    headers['authorization'] = CURRENT_TOKEN
+    json_data = {
+        'typeId': 1, 'language': 7, 
+        'random': '30c7f24089184ab18e2a7a2891fe2955', 
+        'signature': '9BA8EFD7692BEFF500317B5F6CC134B8', 
+        'timestamp': int(time.time())
+    }
+    try:
+        res = await fetch_with_retry(session, 'https://6lotteryapi.com/api/webapi/GetGameIssue', headers, json_data)
+        if res and res.get('code') == 0:
+            return str(res.get('data', {}).get('issueNumber'))
+    except Exception: pass
+    return None
+
+async def execute_auto_bet_via_api(session, predicted_size, streak_count, fallback_issue):
+    global CURRENT_TOKEN
+    if not CURRENT_TOKEN: return False, "No Token"
+    
+    # 💡 [NEW] GetGameIssue ကို အသုံးပြုပြီး ပွဲစဉ်အမှန် (Active Issue) ကို အရင်ရှာပါမည်
+    active_issue = await get_current_game_issue(session)
+    if not active_issue: 
+        active_issue = fallback_issue 
+        
+    dynamic_bet_count = 2 ** streak_count
+    select_type_val = BET_MAPPING.get(predicted_size, 13) 
+    
+    headers = BASE_HEADERS.copy()
+    headers['authorization'] = CURRENT_TOKEN
+    json_data = {
+        'typeId': 1,
+        'issuenumber': active_issue, # ရရှိလာသော ပွဲစဉ်အမှန်ကို ထည့်သွင်းခြင်း
+        'amount': AUTO_BET_BASE_AMOUNT, 
+        'betCount': dynamic_bet_count,   
+        'gameType': 2,
+        'selectType': select_type_val,
+        'language': 7,
+        'random': 'e4a8a3bc251f4e11ab07873aac3290a4', 
+        'signature': '6FDB1170F9B487759CD710E58E35E302', 
+        'timestamp': int(time.time()),
+    }
+    
+    try:
+        res = await fetch_with_retry(session, 'https://6lotteryapi.com/api/webapi/GameBetting', headers, json_data)
+        if res:
+            if res.get('code') == 0:
+                return True, f"✅ Success ({dynamic_bet_count}x) on {active_issue[-4:]}"
+            else:
+                return False, f"⚠️ API: {res.get('msg', 'Error')}"
+        return False, "❌ No Response"
+    except Exception as e:
+        return False, f"❌ Code Error: {str(e)[:20]}"
+
+# ==========================================
+# 🧠 3. THE ULTIMATE AI PRO V2 
 # ==========================================
 def get_streak(sizes_list):
     if not sizes_list: return 0
@@ -119,62 +191,48 @@ def ultimate_ai_predict(history_docs, recent_preds, current_issue):
     score_b, score_s, logic_used = 0.0, 0.0, ""
     ml_weight, pattern_weight, trend_weight = 2.5, 1.5, 1.0
     
-    # --- Auto-Tuning Based on Recent Performance ---
     if len(recent_preds) >= 5:
         wins = sum(1 for p in recent_preds[:5] if p.get('win_lose') == 'WIN ✅')
         if wins <= 2: 
-            ml_weight = 3.5 # AI အပေါ် ပိုမိုအားပြုမည်
+            ml_weight = 3.5 
             pattern_weight = 0.5
             logic_used += "🔄 <b>Auto-Tuning:</b> AI Algorithm အား ပိုမိုအသုံးပြုထားသည်။\n"
 
-    # --- Trend & Streak Analysis (NEW) ---
     current_streak = get_streak(sizes)
     if current_streak >= 4:
-        # လေးကြိမ်ဆက်တိုက်တူနေလျှင် Trend အတိုင်းလိုက်မည် သို့မဟုတ် ချိုးမည် (Martingale သဘောတရား)
         trend_weight = 2.0
         if sizes[-1] == 'BIG':
-            score_s += trend_weight # ၄ ကြိမ် BIG ဖြစ်လျှင် SMALL သို့ ချိုးရန် အားပေးမည်
+            score_s += trend_weight 
             logic_used += f"├ 📉 <b>Trend Force:</b> BIG အတန်းရှည်နေသဖြင့် SMALL သို့ ချိုးမည်။\n"
         else:
             score_b += trend_weight
             logic_used += f"├ 📈 <b>Trend Force:</b> SMALL အတန်းရှည်နေသဖြင့် BIG သို့ ချိုးမည်။\n"
 
-    # --- Enhanced Machine Learning Feature Engineering ---
-    X, y, window = [], [], 6 # Window size တိုးထားသည်
-    
+    X, y, window = [], [], 6 
     def encode_size(s): return 1 if s == 'BIG' else 0
     def encode_parity(p): return 1 if p == 'EVEN' else 0
     
     for i in range(len(sizes) - window):
         row = []
-        for j in range(window): 
-            row.extend([encode_size(sizes[i+j]), numbers[i+j], encode_parity(parities[i+j])])
-        
-        # New Features: သုံးပွဲဆက်တိုက် ပျမ်းမျှဂဏန်း (Moving Average)
+        for j in range(window): row.extend([encode_size(sizes[i+j]), numbers[i+j], encode_parity(parities[i+j])])
         avg_3 = sum(numbers[i+window-3:i+window]) / 3.0
         row.append(avg_3)
-        row.append(get_streak(sizes[i:i+window])) # ယခင်က ဖြစ်ခဲ့သော Streak
-
+        row.append(get_streak(sizes[i:i+window]))
         X.append(row)
         y.append(encode_size(sizes[i+window]))
         
     if len(X) > 30:
-        # AI Models ကို အဆင့်မြှင့်တင်ထားသည်
         rf_clf = RandomForestClassifier(n_estimators=150, max_depth=10, min_samples_split=5, random_state=42, n_jobs=-1).fit(X, y)
         gb_clf = GradientBoostingClassifier(n_estimators=150, learning_rate=0.03, max_depth=5, random_state=42).fit(X, y)
         
         current_features = []
-        for j in range(1, window + 1): 
-            current_features.extend([encode_size(sizes[-j]), numbers[-j], encode_parity(parities[-j])])
-        
+        for j in range(1, window + 1): current_features.extend([encode_size(sizes[-j]), numbers[-j], encode_parity(parities[-j])])
         avg_3_current = sum(numbers[-3:]) / 3.0
         current_features.append(avg_3_current)
         current_features.append(current_streak)
         
-        rf_pred = rf_clf.predict([current_features])[0]
-        rf_prob = max(rf_clf.predict_proba([current_features])[0])
-        gb_pred = gb_clf.predict([current_features])[0]
-        gb_prob = max(gb_clf.predict_proba([current_features])[0])
+        rf_pred = rf_clf.predict([current_features])[0]; rf_prob = max(rf_clf.predict_proba([current_features])[0])
+        gb_pred = gb_clf.predict([current_features])[0]; gb_prob = max(gb_clf.predict_proba([current_features])[0])
         
         if rf_pred == gb_pred:
             if rf_pred == 1: score_b += (rf_prob * ml_weight * 1.5)
@@ -187,7 +245,6 @@ def ultimate_ai_predict(history_docs, recent_preds, current_issue):
             else: score_s += (best_prob * ml_weight)
             logic_used += f"├ 🤖 <b>AI V2 Model:</b> Data Pattern အရ {best_prob*100:.1f}% ယုံကြည်သည်။\n"
 
-    # --- Pattern Logic ---
     if len(sizes) >= 3:
         if sizes[-1] != sizes[-2] and sizes[-2] != sizes[-3]:
             pred_pattern = 'BIG' if sizes[-1] == 'SMALL' else 'SMALL'
@@ -203,25 +260,17 @@ def ultimate_ai_predict(history_docs, recent_preds, current_issue):
         logic_used += "└ ⚠️ Data အလုံအလောက် မရှိသေးပါ။"
     else: 
         raw_prob = (max(score_b, score_s) / total_score) * 100
-        # Volatility Check: ဂဏန်းတွေ အရမ်းခုန်နေရင် Probability ကို နည်းနည်းလျှော့ပြမည်
         volatility = np.std(numbers[-10:]) if len(numbers) >= 10 else 0
         if volatility > 3.0: 
             raw_prob -= 5.0 
             logic_used += "└ ⚠️ <b>Volatility:</b> ကစားကွက်မငြိမ်ပါ။ သတိထားကစားပါ။\n"
-            
         final_prob = min(max(raw_prob, 65.0), 99.0) 
         
-    AI_CACHE.update({
-        "last_trained_issue": current_issue, 
-        "cached_prediction": final_pred, 
-        "cached_prob": round(final_prob, 1), 
-        "cached_logic": logic_used
-    })
-    
+    AI_CACHE.update({"last_trained_issue": current_issue, "cached_prediction": final_pred, "cached_prob": round(final_prob, 1), "cached_logic": logic_used})
     return final_pred, round(final_prob, 1), logic_used
 
 # ==========================================
-# 🎨 3. DYNAMIC GRAPH GENERATOR 
+# 🎨 4. DYNAMIC GRAPH GENERATOR 
 # ==========================================
 def generate_winrate_chart(predictions):
     wins, losses, bar_colors, dots_list, bar_heights, history_wr = 0, 0, [], [], [], []
@@ -257,24 +306,23 @@ def generate_winrate_chart(predictions):
     return buf
 
 # ==========================================
-# 🚀 4. MAIN LOGIC & UI UPDATER
+# 🚀 5. MAIN LOGIC & UI UPDATER
 # ==========================================
 async def check_game_and_predict(session: aiohttp.ClientSession):
     global CURRENT_TOKEN, LAST_PROCESSED_ISSUE, MAIN_MESSAGE_ID, SESSION_START_ISSUE
-    global LAST_CAPTION_EDIT_TIME, API_ERROR_COUNT, LAST_KNOWN_STATE
-    global START_OF_ROUND_BALANCE, CURRENT_BALANCE_DISPLAY
+    global LAST_CAPTION_EDIT_TIME, API_ERROR_COUNT, LAST_KNOWN_STATE, LAST_BET_ISSUE
+    global START_OF_ROUND_BALANCE, CURRENT_BALANCE_DISPLAY, ACTUAL_BET_STREAK
     
     if not CURRENT_TOKEN:
         if not await login_and_get_token(session): return
 
     headers = BASE_HEADERS.copy(); headers['authorization'] = CURRENT_TOKEN
-    json_data = {'pageSize': 10, 'pageNo': 1, 'typeId': 13, 'language': 7, 'random': '1f379d96b6934b59978b4121e75be5e5', 'signature': '2AB571112B64A33AAEA24CC463167AD3', 'timestamp': int(time.time())}
-    data = await fetch_with_retry(session, 'https://6lotteryapi.com/api/webapi/GetTRXNoaverageEmerdList', headers, json_data)
+    json_data = {'pageSize': 10, 'pageNo': 1, 'typeId': 1, 'language': 7, 'random': '736ea5fe7d1744008714320d2cfbbed4', 'signature': '9BE5D3A057D1938B8210BA32222A993C', 'timestamp': int(time.time())}
+    data = await fetch_with_retry(session, 'https://6lotteryapi.com/api/webapi/GetNoaverageEmerdList', headers, json_data)
     
     if data and data.get('code') == 0:
         API_ERROR_COUNT = 0 
         
-        # Initial Balance Sync
         if CURRENT_BALANCE_DISPLAY == 0.0:
             init_bal = await get_user_balance(session)
             if init_bal is not None:
@@ -310,14 +358,17 @@ async def check_game_and_predict(session: aiohttp.ClientSession):
                 if pred_doc and pred_doc.get("predicted_size"):
                     win_lose_status = "WIN ✅" if pred_doc.get("predicted_size") == latest_size else "LOSE ❌"
                     await predictions_collection.update_one({"issue_number": latest_issue}, {"$set": {"actual_size": latest_size, "actual_number": latest_number, "win_lose": win_lose_status}})
+                    
+                    # 💡 [STREAK UPDATE] Auto-Bet Streak ကို ဤနေရာတွင် တွက်ချက်မည်
+                    if win_lose_status == "WIN ✅":
+                        ACTUAL_BET_STREAK = 0 # နိုင်လျှင် ၁ ဆ မှ ပြန်စမည်
+                    else:
+                        ACTUAL_BET_STREAK += 1
+                        if ACTUAL_BET_STREAK > 6: ACTUAL_BET_STREAK = 0 # ၆ ပွဲဆက်ရှုံးပါက ၁ ဆ မှ ပြန်စမည်
 
+            # မှန်းဆရမည့် ပွဲစဉ်အသစ်တွက်ချက်ခြင်း
             next_issue = str(int(latest_issue) + 1)
             recent_preds = await predictions_collection.find({"win_lose": {"$ne": None}}).sort("issue_number", -1).limit(10).to_list(length=10)
-            
-            current_lose_streak = 0
-            for p in recent_preds:
-                if p.get("win_lose") == "LOSE ❌": current_lose_streak += 1
-                else: break
 
             history_docs = await history_collection.find().sort("issue_number", -1).limit(500).to_list(length=500)
             
@@ -330,16 +381,28 @@ async def check_game_and_predict(session: aiohttp.ClientSession):
             predicted_result_db = "BIG" if "BIG" in predicted else "SMALL"
             await predictions_collection.update_one({"issue_number": next_issue}, {"$set": {"predicted_size": predicted_result_db}}, upsert=True)
 
-            # --- 💡 TEXT UI (Manual Bet Advice) ---
-            display_streak = 0 if current_lose_streak > 6 else current_lose_streak
-            current_bet_count = 2 ** display_streak
+            # --- 🤖 AUTO-BET TRIGGER (API METHOD) ---
+            if AUTO_BET_ACTIVE:
+                if is_new_issue and LAST_BET_ISSUE != next_issue:
+                    # 💡 ACTUAL_BET_STREAK ကိုသာ အသုံးပြု၍ AutoBet လုပ်မည်
+                    success, bet_msg = await execute_auto_bet_via_api(session, predicted_result_db, ACTUAL_BET_STREAK, next_issue)
+                    if success: 
+                        LAST_KNOWN_STATE['autobet'] = f"🟢 <b>ON</b> | {bet_msg}"
+                    else: 
+                        LAST_KNOWN_STATE['autobet'] = f"🔴 <b>ERROR</b> | {bet_msg}"
+                    LAST_BET_ISSUE = next_issue
+            else:
+                LAST_KNOWN_STATE['autobet'] = "🔴 <b>OFF</b>"
+
+            # --- 💡 TEXT UI FORMATTING ---
+            current_bet_count = 2 ** ACTUAL_BET_STREAK
             
-            if display_streak == 0: 
-                bet_advice = f"💰 <b>အကြံပြုလောင်းကြေး:</b> အခြေခံကြေး (1x)"
-            elif display_streak <= 6: 
-                bet_advice = f"💰 <b>အကြံပြုလောင်းကြေး:</b> {current_bet_count}x (Martingale)"
+            if ACTUAL_BET_STREAK == 0: 
+                bet_advice = f"💰 <b>လောင်းကြေး:</b> Amount {AUTO_BET_BASE_AMOUNT} | Bet Count: 1"
+            elif ACTUAL_BET_STREAK <= 6: 
+                bet_advice = f"💰 <b>လောင်းကြေး:</b> Amount {AUTO_BET_BASE_AMOUNT} | Bet Count: {current_bet_count} (Martingale)"
             
-            if current_lose_streak >= 6: 
+            if ACTUAL_BET_STREAK >= 6: 
                 bet_advice += "\n⚠️ <b>[DANGER] ၆ ပွဲဆက်တိုက်ရှုံးထားပါသည်! နောက်ပွဲ 1x မှ ပြန်စပါ။</b>"
 
             session_preds = await predictions_collection.find({"issue_number": {"$gte": SESSION_START_ISSUE}, "win_lose": {"$ne": None}}).sort("issue_number", -1).limit(20).to_list(length=20) 
@@ -371,6 +434,7 @@ async def check_game_and_predict(session: aiohttp.ClientSession):
                         f"🅿️ <b>Period:</b> {iss_display}\n"
                         f"🎯 <b>Predict: {predicted}</b>\n"
                         f"📈 <b>ဖြစ်နိုင်ခြေ:</b> {final_prob}%\n"
+                        f"🤖 <b>Auto-Bet:</b> {LAST_KNOWN_STATE['autobet']}\n"
                         f"{LAST_KNOWN_STATE['balance']}\n"
                         f"{LAST_KNOWN_STATE['profit']}\n"
                         f"💡 <b>အကြောင်းပြချက်:</b>\n{reason}\n"
@@ -419,6 +483,7 @@ async def check_game_and_predict(session: aiohttp.ClientSession):
                 f"🅿️ <b>Period:</b> {iss_display}\n"
                 f"🎯 <b>Predict: {LAST_KNOWN_STATE['predicted']}</b>\n"
                 f"📈 <b>ဖြစ်နိုင်ခြေ:</b> {LAST_KNOWN_STATE['final_prob']}%\n"
+                f"🤖 <b>Auto-Bet:</b> {LAST_KNOWN_STATE['autobet']}\n"
                 f"{LAST_KNOWN_STATE['balance']}\n"
                 f"{LAST_KNOWN_STATE['profit']}\n"
                 f"💡 <b>အကြောင်းပြချက်:</b>\n{LAST_KNOWN_STATE['reason']}\n"
@@ -433,14 +498,34 @@ async def check_game_and_predict(session: aiohttp.ClientSession):
             except Exception: pass
 
 # ==========================================
-# 💬 5. TELEGRAM COMMAND HANDLERS
+# 💬 6. TELEGRAM COMMAND HANDLERS
 # ==========================================
+@dp.message(lambda message: message.text and message.text.lower().startswith(".autobet"))
+async def autobet_handler(message: types.Message):
+    global AUTO_BET_ACTIVE, AUTO_BET_BASE_AMOUNT, ACTUAL_BET_STREAK
+    parts = message.text.lower().split()
+    if len(parts) == 1:
+        status = "ON 🟢" if AUTO_BET_ACTIVE else "OFF 🔴"
+        await message.reply(f"🤖 <b>API Auto-Bet Status:</b> {status}\n💰 <b>Base Amount:</b> {AUTO_BET_BASE_AMOUNT}\n\nအသုံးပြုနည်း:\n<code>.autobet on 100</code>\n<code>.autobet off</code>")
+        return
+    cmd = parts[1]
+    if cmd == "on":
+        AUTO_BET_ACTIVE = True
+        ACTUAL_BET_STREAK = 0  # 💡 [NEW] အော်တိုဘက် ဖွင့်လိုက်သည်နှင့် ၁ ဆ (0 Streak) မှ အမြဲစမည်
+        if len(parts) >= 3 and parts[2].isdigit(): AUTO_BET_BASE_AMOUNT = int(parts[2])
+        await message.reply(f"✅ API Auto-Bet ဖွင့်လိုက်ပါပြီ။\n💰 အခြေခံလောင်းကြေး: {AUTO_BET_BASE_AMOUNT}\n(1 ဆ မှ စတင်လောင်းပါမည်)")
+    elif cmd == "off":
+        AUTO_BET_ACTIVE = False
+        await message.reply("❌ API Auto-Bet ပိတ်လိုက်ပါပြီ။")
+    else:
+        await message.reply("⚠️ မှားယွင်းနေပါသည်။ <code>.autobet on 100</code> သို့မဟုတ် <code>.autobet off</code> ဟုသာ ရိုက်ပါ။")
+
 @dp.message(Command("start"))
 async def send_welcome(message: types.Message):
-    await message.reply("👋 မင်္ဂလာပါ။ စနစ်က Zero-Lag AI Pro V2 Timer ဖြင့် အလုပ်လုပ်နေပါပြီ။\n(Auto-Bet စနစ်အား ပိတ်ထားပါသည်)")
+    await message.reply("👋 မင်္ဂလာပါ။ စနစ်က Zero-Lag AI Pro V2 Timer (API Autobet Edition) ဖြင့် အလုပ်လုပ်နေပါပြီ။\nအသုံးပြုရန်: <code>.autobet on 100</code>")
 
 # ==========================================
-# 🔄 6. BACKGROUND TASK
+# 🔄 7. BACKGROUND TASK
 # ==========================================
 async def auto_broadcaster():
     await init_db() 
@@ -454,7 +539,7 @@ async def auto_broadcaster():
             await asyncio.sleep(0.5) 
 
 async def main():
-    print("🚀 Aiogram SIX-LOTTERY Bot (AI Pro V2 Edition - No Autobet) စတင်နေပါပြီ...\n")
+    print("🚀 Aiogram SIX-LOTTERY Bot (API Autobet + AI V2) စတင်နေပါပြီ...\n")
     await bot.delete_webhook(drop_pending_updates=True)
     asyncio.create_task(auto_broadcaster())
     await dp.start_polling(bot)
