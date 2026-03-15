@@ -141,42 +141,56 @@ async def get_current_game_issue(session):
     return None
 
 async def execute_auto_bet_via_api(session, predicted_size, streak_count, fallback_issue):
+
     global CURRENT_TOKEN
-    if not CURRENT_TOKEN: return False, "No Token"
-    
-    # 💡 [NEW] GetGameIssue ကို အသုံးပြုပြီး ပွဲစဉ်အမှန် (Active Issue) ကို အရင်ရှာပါမည်
+
+    if not CURRENT_TOKEN:
+        return False, "No Token"
+
     active_issue = await get_current_game_issue(session)
-    if not active_issue: 
-        active_issue = fallback_issue 
-        
-    dynamic_bet_count = 2 ** streak_count
-    select_type_val = BET_MAPPING.get(predicted_size, 13) 
-    
+
+    if not active_issue or len(active_issue) < 5:
+        active_issue = fallback_issue
+
+    dynamic_bet_count = min(2 ** streak_count, 64)
+
+    select_type_val = BET_MAPPING.get(predicted_size, 13)
+
     headers = BASE_HEADERS.copy()
     headers['authorization'] = CURRENT_TOKEN
+
     json_data = {
         'typeId': 1,
-        'issuenumber': active_issue, # ရရှိလာသော ပွဲစဉ်အမှန်ကို ထည့်သွင်းခြင်း
-        'amount': AUTO_BET_BASE_AMOUNT, 
-        'betCount': dynamic_bet_count,   
+        'issuenumber': active_issue,
+        'amount': AUTO_BET_BASE_AMOUNT,
+        'betCount': dynamic_bet_count,
         'gameType': 2,
         'selectType': select_type_val,
         'language': 7,
-        'random': 'e4a8a3bc251f4e11ab07873aac3290a4', 
-        'signature': '6FDB1170F9B487759CD710E58E35E302', 
-        'timestamp': int(time.time()),
+        'timestamp': int(time.time())
     }
-    
+
     try:
-        res = await fetch_with_retry(session, 'https://6lotteryapi.com/api/webapi/GameBetting', headers, json_data)
+
+        res = await fetch_with_retry(
+            session,
+            'https://6lotteryapi.com/api/webapi/GameBetting',
+            headers,
+            json_data
+        )
+
         if res:
+
             if res.get('code') == 0:
-                return True, f"✅ Success ({dynamic_bet_count}x) on {active_issue[-4:]}"
-            else:
-                return False, f"⚠️ API: {res.get('msg', 'Error')}"
-        return False, "❌ No Response"
+                return True, f"BET OK ({dynamic_bet_count}x)"
+
+            return False, res.get('msg', 'API Error')
+
+        return False, "No Response"
+
     except Exception as e:
-        return False, f"❌ Code Error: {str(e)[:20]}"
+
+        return False, str(e)
 
 # ==========================================
 # 🧠 3. THE ULTIMATE AI PRO V2 
