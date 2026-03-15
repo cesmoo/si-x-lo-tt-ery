@@ -2,7 +2,6 @@ import asyncio
 import time
 import os
 import io
-import json
 from datetime import datetime
 from dotenv import load_dotenv
 import aiohttp
@@ -13,9 +12,9 @@ from aiogram.filters import Command
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
-from aiogram.types import BufferedInputFile, InputMediaPhoto, FSInputFile
+from aiogram.types import BufferedInputFile, InputMediaPhoto
 
-from playwright.async_api import async_playwright
+# --- 🧠 UPGRADED MACHINE LEARNING LIBRARIES ---
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 import matplotlib
@@ -24,9 +23,13 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import warnings
 warnings.filterwarnings("ignore")
+# ------------------------------------------
 
 load_dotenv()
 
+# ==========================================
+# ⚙️ 1. CONFIGURATION
+# ==========================================
 USERNAME = os.getenv("SIXLOTTERY_USERNAME")
 PASSWORD = os.getenv("SIXLOTTERY_PASSWORD")
 TELEGRAM_BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -43,117 +46,15 @@ predictions_collection = db['predictions']
 
 CURRENT_TOKEN, LAST_PROCESSED_ISSUE, MAIN_MESSAGE_ID, SESSION_START_ISSUE = "", None, None, None
 LAST_CAPTION_EDIT_TIME, API_ERROR_COUNT = 0, 0 
-AUTO_BET_ACTIVE, AUTO_BET_BASE_AMOUNT, LAST_BET_ISSUE = False, 100, None
 START_OF_ROUND_BALANCE, CURRENT_BALANCE_DISPLAY = 0.0, 0.0
 
 LAST_KNOWN_STATE = {
     "table_str": "<code>Data Loading...</code>", "next_issue": "Loading", "predicted": "Wait",
     "final_prob": 0.0, "reason": "Syncing Data...", "bet_advice": "...",
-    "autobet": "🔴 <b>OFF</b>", "balance": "💳 <b>Balance:</b> Syncing...", "profit": "📊 <b>Profit:</b> 0.00 Ks"
+    "balance": "💳 <b>Balance:</b> Syncing...", "profit": "📊 <b>Profit:</b> 0.00 Ks"
 }
 AI_CACHE = {"last_trained_issue": None, "rf_model": None, "gb_model": None, "cached_prediction": None, "cached_prob": None, "cached_logic": ""}
 BASE_HEADERS = {'authority': '6lotteryapi.com', 'accept': 'application/json, text/plain, */*', 'content-type': 'application/json;charset=UTF-8', 'origin': 'https://www.6win566.com', 'referer': 'https://www.6win566.com/', 'user-agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36'}
-
-PW_PAGE, PW_CONTEXT, PW_BROWSER = None, None, None
-
-# ==========================================
-# 🌐 2. PLAYWRIGHT BROWSER INITIALIZATION (TIMEOUT & FORCE CLICK FIX)
-# ==========================================
-async def catch_token(response):
-    global CURRENT_TOKEN
-    if "Login" in response.url and response.request.method == "POST":
-        try:
-            json_data = await response.json()
-            if json_data.get("code") == 0:
-                token = json_data.get("data", {}).get("token", "")
-                if token:
-                    CURRENT_TOKEN = f"Bearer {token}"
-                    print("🔑 Browser မှ Token ကို အောင်မြင်စွာ ကြားဖြတ်ရယူနိုင်ပါပြီ!")
-        except: pass
-
-async def init_playwright():
-    global PW_PAGE, PW_CONTEXT, PW_BROWSER
-    print("🌐 မျက်မြင်မရသော Browser ကို စတင်ဖွင့်လှစ်နေပါသည်...")
-    try:
-        p = await async_playwright().start()
-        PW_BROWSER = await p.chromium.launch(headless=True, args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu']) 
-        PW_CONTEXT = await PW_BROWSER.new_context(
-            user_agent="Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",
-            viewport={'width': 414, 'height': 896}, locale='en-US' 
-        )
-        PW_PAGE = await PW_CONTEXT.new_page()
-        
-        # Timeout ကို ပုံမှန် 30s မှ 60s အထိ တိုးပေးထားမည်
-        PW_PAGE.set_default_timeout(60000)
-        
-        PW_PAGE.on("response", catch_token)
-        
-        print("🌐 Login စာမျက်နှာသို့ သွားနေပါသည်...")
-        try:
-            await PW_PAGE.goto("https://www.6win566.com/#/login", timeout=60000) 
-            await PW_PAGE.wait_for_timeout(5000)
-        except Exception as e:
-            print(f"⚠️ ဝင်ရောက်မှု အနည်းငယ်ကြာနေပါသည်... ({e})")
-        
-        login_phone = USERNAME
-        if login_phone.startswith("95") and len(login_phone) > 9: 
-            login_phone = login_phone[2:]
-            
-        print(f"🌐 ဖုန်းနံပါတ် ({login_phone}) နှင့် ပတ်စ်ဝါဒ် ထည့်သွင်းနေပါသည်...")
-        
-        visible_inputs = await PW_PAGE.locator("input:visible").all()
-        if len(visible_inputs) >= 2:
-            await visible_inputs[0].click(force=True)
-            await visible_inputs[0].press_sequentially(login_phone, delay=50) 
-            await PW_PAGE.wait_for_timeout(500)
-            
-            await visible_inputs[1].click(force=True)
-            await visible_inputs[1].press_sequentially(PASSWORD, delay=50)
-            await PW_PAGE.wait_for_timeout(500)
-            
-            checkbox = PW_PAGE.locator(".van-checkbox__icon")
-            if await checkbox.count() > 0:
-                await checkbox.first.click(force=True)
-                await PW_PAGE.wait_for_timeout(500)
-        
-        buttons = await PW_PAGE.locator("button:visible").all()
-        for btn in buttons:
-            btn_class = await btn.get_attribute("class") or ""
-            if "van-button--danger" in btn_class: 
-                print("🌐 လော့ဂ်အင် ခလုတ်ကို နှိပ်နေပါသည်...")
-                try:
-                    # 💡 [FIX] ကြော်ငြာပိတ်နေလျှင်လည်း အတင်းနှိပ်မည် (force=True)
-                    await btn.click(force=True, timeout=15000)
-                except Exception as e:
-                    print(f"⚠️ Click Error (ဒါပေမယ့် ရှေ့ဆက်သွားမည်): {e}")
-                break
-             
-        await PW_PAGE.wait_for_timeout(6000)
-        
-        current_url = PW_PAGE.url
-        if "login" in current_url:
-            print("❌ Login မအောင်မြင်ပါ။ စကားဝှက် သို့မဟုတ် ဖုန်းနံပါတ် မှားယွင်းနေပါသည်။")
-            try: await PW_PAGE.screenshot(path="login_failed.png", full_page=True)
-            except: pass
-            return 
-        
-        print("🌐 Wingo 1 Min စာမျက်နှာသို့ သွားနေပါသည်...")
-        try:
-            await PW_PAGE.goto("https://www.6win566.com/#/home/AllLotteryGames/WinGo?type=1", timeout=60000)
-            # 💡 [FIX] networkidle အစား အချိန်အတိအကျ (8 စက္ကန့်) သာ စောင့်ခိုင်းမည်
-            await PW_PAGE.wait_for_timeout(8000)
-        except Exception as e:
-            print(f"⚠️ စာမျက်နှာ အပြည့်အဝမပွင့်သေးပါ (ရှေ့ဆက်သွားမည်): {e}")
-        
-        await PW_PAGE.mouse.click(10, 10)
-        await PW_PAGE.wait_for_timeout(1000)
-        print("✅ Playwright Login & Navigation Completed.")
-        
-    except Exception as e:
-        import traceback
-        print(f"❌ Playwright Init Error: {traceback.format_exc()}")
-        try: await PW_PAGE.screenshot(path="init_error.png", full_page=True)
-        except: pass
 
 async def init_db():
     try: 
@@ -169,125 +70,159 @@ async def fetch_with_retry(session, url, headers, json_data, retries=1):
         except Exception: await asyncio.sleep(0.2)
     return None
 
-# 💡 [FIX] API မှ သီးသန့် Login ဝင်ခြင်းကို လုံးဝ ဖျက်ပစ်လိုက်ပါပြီ။ (Token ကို Browser ထံမှ ရယူမည်)
+async def login_and_get_token(session: aiohttp.ClientSession):
+    global CURRENT_TOKEN
+    json_data = {'username': USERNAME, 'pwd': PASSWORD, 'phonetype': 1, 'logintype': 'mobile', 'packId': '', 'deviceId': 'b9b753a9f874897574d7fa72ff84374c', 'language': 7, 'random': '457a0935e8b54d63924ce243e028f789', 'signature': '6C2BCE370032980C33A1FC41A327DF09', 'timestamp': int(time.time())}
+    data = await fetch_with_retry(session, 'https://6lotteryapi.com/api/webapi/Login', BASE_HEADERS, json_data)
+    if data and data.get('code') == 0: 
+        CURRENT_TOKEN = f"Bearer {data.get('data', {}).get('token', '')}"
+        print("✅ API Login အောင်မြင်ပါသည်။ Token ရရှိပါပြီ။")
+        return True
+    return False
 
-# ==========================================
-# 💳 3. BALANCE FETCHING FUNCTION
-# ==========================================
 async def get_user_balance(session):
     global CURRENT_TOKEN
     if not CURRENT_TOKEN: return None
-    
     headers = BASE_HEADERS.copy()
     headers['authorization'] = CURRENT_TOKEN
-    json_data = {
-        'language': 7,
-        'random': '6e5c9c6f8d824252b800b40d6a0af244',
-        'signature': '6E635C1F332EF7D017FF2B7370160E4D',
-        'timestamp': int(time.time()),
-    }
-    
+    json_data = {'language': 7, 'random': '6e5c9c6f8d824252b800b40d6a0af244', 'signature': '6E635C1F332EF7D017FF2B7370160E4D', 'timestamp': int(time.time())}
     try:
         res = await fetch_with_retry(session, 'https://6lotteryapi.com/api/webapi/GetBalance', headers, json_data)
-        if res and res.get('code') == 0:
-            data = res.get('data', {})
-            amt = data.get('amount', data.get('balance', 0))
-            return float(amt)
-    except Exception:
-        pass
+        if res and res.get('code') == 0: return float(res.get('data', {}).get('balance', 0))
+    except Exception: pass
     return None
 
 # ==========================================
-# 💰 3. AUTO-BETTING FUNCTION
+# 🧠 2. THE ULTIMATE AI PRO V2 (ENHANCED)
 # ==========================================
-async def execute_auto_bet_via_browser(issue_number, predicted_size, streak_count):
-    global PW_PAGE
-    if not PW_PAGE: return False, "Browser Not Ready", False
-    if streak_count > 6: streak_count = 0 
-    dynamic_bet_count = 2 ** streak_count
-    
-    try:
-        if predicted_size == "BIG": 
-            await PW_PAGE.locator("text=အကြီး").first.click(timeout=10000)
-        else: 
-            await PW_PAGE.locator("text=အသေး").first.click(timeout=10000)
-            
-        await PW_PAGE.wait_for_timeout(1000) 
-        
-        num_input = PW_PAGE.locator("input[type='number'], input[type='tel']").first
-        await num_input.click(timeout=5000)
-        await PW_PAGE.keyboard.press("Control+A") 
-        await PW_PAGE.keyboard.press("Backspace") 
-        await num_input.fill(str(dynamic_bet_count)) 
-        await PW_PAGE.wait_for_timeout(500)
-        
-        await PW_PAGE.locator("button:has-text('စုစုပေါင်းပမာဏ')").first.click(timeout=10000)
-        await PW_PAGE.wait_for_timeout(1500)
-        return True, f"✅ Success ({dynamic_bet_count}x)", False
-        
-    except Exception as e:
-        err_msg = str(e).split('\n')[0][:30]
-        try:
-            await PW_PAGE.screenshot(path="debug_snap.png", full_page=True)
-            return False, f"⚠️ UI Error: {err_msg}", True 
-        except: return False, f"⚠️ UI Error: {err_msg}", False
+def get_streak(sizes_list):
+    if not sizes_list: return 0
+    count = 1
+    for i in range(len(sizes_list)-2, -1, -1):
+        if sizes_list[i] == sizes_list[-1]: count += 1
+        else: break
+    return count
 
-# ==========================================
-# 🧠 4. THE ULTIMATE AI PRO (Hiding to save space)
-# ==========================================
 def ultimate_ai_predict(history_docs, recent_preds, current_issue):
     global AI_CACHE
     if AI_CACHE["last_trained_issue"] == current_issue and AI_CACHE["cached_prediction"]: 
         return AI_CACHE["cached_prediction"], AI_CACHE["cached_prob"], AI_CACHE["cached_logic"]
-    if len(history_docs) < 20: return "BIG", 55.0, "⏳ Data စုဆောင်းဆဲ..."
+
+    if len(history_docs) < 25: 
+        return "BIG", 55.0, "⏳ Data စုဆောင်းဆဲ..."
+
     docs = list(reversed(history_docs))[-500:]
-    sizes = [d.get('size', 'BIG') for d in docs]; numbers = [int(d.get('number', 0)) for d in docs]; parities = [d.get('parity', 'EVEN') for d in docs]
-    score_b, score_s, logic_used, ml_weight, pattern_weight, house_edge_weight = 0.0, 0.0, "", 2.0, 1.5, 2.0
-    if len(recent_preds) >= 5 and sum(1 for p in recent_preds[:5] if p.get('win_lose') == 'WIN ✅') <= 2: 
-        ml_weight, pattern_weight = 3.0, 0.5; logic_used += "🔄 <b>Auto-Tuning:</b> ML အပေါ် ပိုမိုအားပြုထားသည်။\n"
-    last_100_sizes = sizes[-100:]; b_100, s_100 = last_100_sizes.count('BIG'), last_100_sizes.count('SMALL')
-    if b_100 > (len(last_100_sizes) * 0.55): score_s += house_edge_weight; logic_used += f"├ ⚖️ <b>House Edge:</b> SMALL သို့ ဆွဲချမည်\n"
-    elif s_100 > (len(last_100_sizes) * 0.55): score_b += house_edge_weight; logic_used += f"├ ⚖️ <b>House Edge:</b> BIG သို့ ဆွဲချမည်\n"
-    X, y, window = [], [], 5 
+    sizes = [d.get('size', 'BIG') for d in docs]
+    numbers = [int(d.get('number', 0)) for d in docs]
+    parities = [d.get('parity', 'EVEN') for d in docs]
+    
+    score_b, score_s, logic_used = 0.0, 0.0, ""
+    ml_weight, pattern_weight, trend_weight = 2.5, 1.5, 1.0
+    
+    # --- Auto-Tuning Based on Recent Performance ---
+    if len(recent_preds) >= 5:
+        wins = sum(1 for p in recent_preds[:5] if p.get('win_lose') == 'WIN ✅')
+        if wins <= 2: 
+            ml_weight = 3.5 # AI အပေါ် ပိုမိုအားပြုမည်
+            pattern_weight = 0.5
+            logic_used += "🔄 <b>Auto-Tuning:</b> AI Algorithm အား ပိုမိုအသုံးပြုထားသည်။\n"
+
+    # --- Trend & Streak Analysis (NEW) ---
+    current_streak = get_streak(sizes)
+    if current_streak >= 4:
+        # လေးကြိမ်ဆက်တိုက်တူနေလျှင် Trend အတိုင်းလိုက်မည် သို့မဟုတ် ချိုးမည် (Martingale သဘောတရား)
+        trend_weight = 2.0
+        if sizes[-1] == 'BIG':
+            score_s += trend_weight # ၄ ကြိမ် BIG ဖြစ်လျှင် SMALL သို့ ချိုးရန် အားပေးမည်
+            logic_used += f"├ 📉 <b>Trend Force:</b> BIG အတန်းရှည်နေသဖြင့် SMALL သို့ ချိုးမည်။\n"
+        else:
+            score_b += trend_weight
+            logic_used += f"├ 📈 <b>Trend Force:</b> SMALL အတန်းရှည်နေသဖြင့် BIG သို့ ချိုးမည်။\n"
+
+    # --- Enhanced Machine Learning Feature Engineering ---
+    X, y, window = [], [], 6 # Window size တိုးထားသည်
+    
     def encode_size(s): return 1 if s == 'BIG' else 0
     def encode_parity(p): return 1 if p == 'EVEN' else 0
+    
     for i in range(len(sizes) - window):
         row = []
-        for j in range(window): row.extend([encode_size(sizes[i+j]), numbers[i+j], encode_parity(parities[i+j])])
-        row.append(1 if sizes[i+window-1] == sizes[i+window-2] else 0); X.append(row); y.append(encode_size(sizes[i+window]))
-    if len(X) > 20:
-        rf_clf = RandomForestClassifier(n_estimators=100, max_depth=7, random_state=42, n_jobs=-1).fit(X, y)
-        gb_clf = GradientBoostingClassifier(n_estimators=100, learning_rate=0.05, max_depth=4, random_state=42).fit(X, y)
+        for j in range(window): 
+            row.extend([encode_size(sizes[i+j]), numbers[i+j], encode_parity(parities[i+j])])
+        
+        # New Features: သုံးပွဲဆက်တိုက် ပျမ်းမျှဂဏန်း (Moving Average)
+        avg_3 = sum(numbers[i+window-3:i+window]) / 3.0
+        row.append(avg_3)
+        row.append(get_streak(sizes[i:i+window])) # ယခင်က ဖြစ်ခဲ့သော Streak
+
+        X.append(row)
+        y.append(encode_size(sizes[i+window]))
+        
+    if len(X) > 30:
+        # AI Models ကို အဆင့်မြှင့်တင်ထားသည်
+        rf_clf = RandomForestClassifier(n_estimators=150, max_depth=10, min_samples_split=5, random_state=42, n_jobs=-1).fit(X, y)
+        gb_clf = GradientBoostingClassifier(n_estimators=150, learning_rate=0.03, max_depth=5, random_state=42).fit(X, y)
+        
         current_features = []
-        for j in range(1, window + 1): current_features.extend([encode_size(sizes[-j]), numbers[-j], encode_parity(parities[-j])])
-        current_features.append(1 if sizes[-1] == sizes[-2] else 0)
-        rf_pred, rf_prob = rf_clf.predict([current_features])[0], max(rf_clf.predict_proba([current_features])[0])
-        gb_pred, gb_prob = gb_clf.predict([current_features])[0], max(gb_clf.predict_proba([current_features])[0])
+        for j in range(1, window + 1): 
+            current_features.extend([encode_size(sizes[-j]), numbers[-j], encode_parity(parities[-j])])
+        
+        avg_3_current = sum(numbers[-3:]) / 3.0
+        current_features.append(avg_3_current)
+        current_features.append(current_streak)
+        
+        rf_pred = rf_clf.predict([current_features])[0]
+        rf_prob = max(rf_clf.predict_proba([current_features])[0])
+        gb_pred = gb_clf.predict([current_features])[0]
+        gb_prob = max(gb_clf.predict_proba([current_features])[0])
+        
         if rf_pred == gb_pred:
             if rf_pred == 1: score_b += (rf_prob * ml_weight * 1.5)
             else: score_s += (rf_prob * ml_weight * 1.5)
-            logic_used += "├ 🤖 <b>AI Ensemble:</b> Algorithm ၂ မျိုးလုံး တူညီသည်။\n"
+            logic_used += "├ 🤖 <b>AI V2 Ensemble:</b> RF နှင့် GB နှစ်မျိုးလုံး တူညီသည်။\n"
         else:
-            best_prob, best_pred = max(rf_prob, gb_prob), rf_pred if rf_prob > gb_prob else gb_pred
+            best_prob = max(rf_prob, gb_prob)
+            best_pred = rf_pred if rf_prob > gb_prob else gb_pred
             if best_pred == 1: score_b += (best_prob * ml_weight)
             else: score_s += (best_prob * ml_weight)
-            logic_used += "├ 🤖 <b>AI Prediction:</b> Data မှတ်တမ်းများအရ ခန့်မှန်းသည်။\n"
+            logic_used += f"├ 🤖 <b>AI V2 Model:</b> Data Pattern အရ {best_prob*100:.1f}% ယုံကြည်သည်။\n"
+
+    # --- Pattern Logic ---
     if len(sizes) >= 3:
         if sizes[-1] != sizes[-2] and sizes[-2] != sizes[-3]:
             pred_pattern = 'BIG' if sizes[-1] == 'SMALL' else 'SMALL'
             if pred_pattern == 'BIG': score_b += pattern_weight
             else: score_s += pattern_weight
-            logic_used += "├ 🏓 <b>Pattern:</b> ခုတ်ချိုး\n"
-        elif sizes[-1] == sizes[-2] == sizes[-3]:
-            if sizes[-1] == 'BIG': score_b += pattern_weight
-            else: score_s += pattern_weight
-            logic_used += "├ 🐉 <b>Pattern:</b> အတန်းရှည်\n"
-    total_score = score_b + score_s; final_pred = "BIG" if score_b > score_s else "SMALL"
-    if total_score == 0: final_prob, logic_used = 55.0, logic_used + "└ ⚠️ Data မရှိသေးပါ။"
-    else: final_prob = min(max((max(score_b, score_s) / total_score) * 100, 72.0), 98.0) 
-    AI_CACHE.update({"last_trained_issue": current_issue, "cached_prediction": final_pred, "cached_prob": final_prob, "cached_logic": logic_used})
-    return final_pred, final_prob, logic_used
+            logic_used += "├ 🏓 <b>Pattern:</b> ခုတ်ချိုး အကွက်ဖြစ်သည်။\n"
 
+    total_score = score_b + score_s
+    final_pred = "BIG" if score_b > score_s else "SMALL"
+    
+    if total_score == 0: 
+        final_prob = 55.0
+        logic_used += "└ ⚠️ Data အလုံအလောက် မရှိသေးပါ။"
+    else: 
+        raw_prob = (max(score_b, score_s) / total_score) * 100
+        # Volatility Check: ဂဏန်းတွေ အရမ်းခုန်နေရင် Probability ကို နည်းနည်းလျှော့ပြမည်
+        volatility = np.std(numbers[-10:]) if len(numbers) >= 10 else 0
+        if volatility > 3.0: 
+            raw_prob -= 5.0 
+            logic_used += "└ ⚠️ <b>Volatility:</b> ကစားကွက်မငြိမ်ပါ။ သတိထားကစားပါ။\n"
+            
+        final_prob = min(max(raw_prob, 65.0), 99.0) 
+        
+    AI_CACHE.update({
+        "last_trained_issue": current_issue, 
+        "cached_prediction": final_pred, 
+        "cached_prob": round(final_prob, 1), 
+        "cached_logic": logic_used
+    })
+    
+    return final_pred, round(final_prob, 1), logic_used
+
+# ==========================================
+# 🎨 3. DYNAMIC GRAPH GENERATOR 
+# ==========================================
 def generate_winrate_chart(predictions):
     wins, losses, bar_colors, dots_list, bar_heights, history_wr = 0, 0, [], [], [], []
     latest_preds = list(reversed(predictions))[-20:]
@@ -322,16 +257,15 @@ def generate_winrate_chart(predictions):
     return buf
 
 # ==========================================
-# 🚀 5. MAIN LOGIC & UI UPDATER
+# 🚀 4. MAIN LOGIC & UI UPDATER
 # ==========================================
 async def check_game_and_predict(session: aiohttp.ClientSession):
     global CURRENT_TOKEN, LAST_PROCESSED_ISSUE, MAIN_MESSAGE_ID, SESSION_START_ISSUE
-    global LAST_CAPTION_EDIT_TIME, API_ERROR_COUNT, LAST_KNOWN_STATE, LAST_BET_ISSUE
+    global LAST_CAPTION_EDIT_TIME, API_ERROR_COUNT, LAST_KNOWN_STATE
     global START_OF_ROUND_BALANCE, CURRENT_BALANCE_DISPLAY
     
     if not CURRENT_TOKEN:
-        # Token မရှိပါက Browser Login မှ Token ဖမ်းယူရရှိသည်အထိ ခဏစောင့်မည်
-        return
+        if not await login_and_get_token(session): return
 
     headers = BASE_HEADERS.copy(); headers['authorization'] = CURRENT_TOKEN
     json_data = {'pageSize': 10, 'pageNo': 1, 'typeId': 1, 'language': 7, 'random': '736ea5fe7d1744008714320d2cfbbed4', 'signature': '9BE5D3A057D1938B8210BA32222A993C', 'timestamp': int(time.time())}
@@ -339,6 +273,8 @@ async def check_game_and_predict(session: aiohttp.ClientSession):
     
     if data and data.get('code') == 0:
         API_ERROR_COUNT = 0 
+        
+        # Initial Balance Sync
         if CURRENT_BALANCE_DISPLAY == 0.0:
             init_bal = await get_user_balance(session)
             if init_bal is not None:
@@ -368,6 +304,7 @@ async def check_game_and_predict(session: aiohttp.ClientSession):
 
                 LAST_PROCESSED_ISSUE = latest_issue
                 if not SESSION_START_ISSUE: SESSION_START_ISSUE = latest_issue
+                
                 await history_collection.update_one({"issue_number": latest_issue}, {"$setOnInsert": {"number": latest_number, "size": latest_size, "parity": latest_parity}}, upsert=True)
                 pred_doc = await predictions_collection.find_one({"issue_number": latest_issue})
                 if pred_doc and pred_doc.get("predicted_size"):
@@ -376,58 +313,70 @@ async def check_game_and_predict(session: aiohttp.ClientSession):
 
             next_issue = str(int(latest_issue) + 1)
             recent_preds = await predictions_collection.find({"win_lose": {"$ne": None}}).sort("issue_number", -1).limit(10).to_list(length=10)
+            
             current_lose_streak = 0
             for p in recent_preds:
                 if p.get("win_lose") == "LOSE ❌": current_lose_streak += 1
                 else: break
 
             history_docs = await history_collection.find().sort("issue_number", -1).limit(500).to_list(length=500)
+            
             try:
                 mem_pred, final_prob, mem_logic = await asyncio.to_thread(ultimate_ai_predict, history_docs, recent_preds, next_issue)
-                predicted, reason = "BIG (အကြီး) 🔴" if mem_pred == "BIG" else "SMALL (အသေး) 🟢", f"🧠 <b>Ultimate AI Pro Engine</b>\n{mem_logic}"
-            except Exception as e: predicted, mem_pred, final_prob, reason = "BIG (အကြီး) 🔴", "BIG", 60.0, f"⚠️ AI Error: {str(e)}"
+                predicted, reason = "BIG (အကြီး) 🔴" if mem_pred == "BIG" else "SMALL (အသေး) 🟢", f"🧠 <b>AI Pro V2 Engine</b>\n{mem_logic}"
+            except Exception as e:
+                predicted, mem_pred, final_prob, reason = "BIG (အကြီး) 🔴", "BIG", 60.0, f"⚠️ AI Error: {str(e)}"
             
             predicted_result_db = "BIG" if "BIG" in predicted else "SMALL"
             await predictions_collection.update_one({"issue_number": next_issue}, {"$set": {"predicted_size": predicted_result_db}}, upsert=True)
 
-            # --- 🤖 AUTO-BET TRIGGER ---
-            if AUTO_BET_ACTIVE:
-                if is_new_issue and LAST_BET_ISSUE != next_issue:
-                    success, bet_msg, has_snap = await execute_auto_bet_via_browser(next_issue, predicted_result_db, current_lose_streak)
-                    if success: LAST_KNOWN_STATE['autobet'] = f"🟢 <b>ON</b> | {bet_msg}"
-                    else: 
-                        LAST_KNOWN_STATE['autobet'] = f"🔴 <b>ERROR</b> | {bet_msg}"
-                        if has_snap and os.path.exists("debug_snap.png"):
-                            try:
-                                snap_photo = FSInputFile("debug_snap.png")
-                                await bot.send_photo(chat_id=TELEGRAM_CHANNEL_ID, photo=snap_photo, caption=f"📸 <b>[DEBUG] Browser Error!</b>\nIssue: {next_issue}\nMessage: {bet_msg}", parse_mode="HTML")
-                            except Exception: pass
-                    LAST_BET_ISSUE = next_issue
-            else:
-                LAST_KNOWN_STATE['autobet'] = "🔴 <b>OFF</b>"
-
+            # --- 💡 TEXT UI (Manual Bet Advice) ---
             display_streak = 0 if current_lose_streak > 6 else current_lose_streak
             current_bet_count = 2 ** display_streak
-            if display_streak == 0: bet_advice = f"💰 <b>လောင်းကြေး:</b> Amount {AUTO_BET_BASE_AMOUNT} | Bet Count: 1"
-            elif display_streak <= 6: bet_advice = f"💰 <b>လောင်းကြေး:</b> Amount {AUTO_BET_BASE_AMOUNT} | Bet Count: {current_bet_count} (Martingale)"
-            if current_lose_streak >= 6: bet_advice += "\n⚠️ <b>[DANGER] ၆ ပွဲဆက်တိုက်ရှုံးထားပါသည်! နောက်ပွဲ 1 မှ ပြန်စပါမည်။</b>"
+            
+            if display_streak == 0: 
+                bet_advice = f"💰 <b>အကြံပြုလောင်းကြေး:</b> အခြေခံကြေး (1x)"
+            elif display_streak <= 6: 
+                bet_advice = f"💰 <b>အကြံပြုလောင်းကြေး:</b> {current_bet_count}x (Martingale)"
+            
+            if current_lose_streak >= 6: 
+                bet_advice += "\n⚠️ <b>[DANGER] ၆ ပွဲဆက်တိုက်ရှုံးထားပါသည်! နောက်ပွဲ 1x မှ ပြန်စပါ။</b>"
 
             session_preds = await predictions_collection.find({"issue_number": {"$gte": SESSION_START_ISSUE}, "win_lose": {"$ne": None}}).sort("issue_number", -1).limit(20).to_list(length=20) 
+            
             table_str = "<code>Period    | Result  | W/L\n----------|---------|----\n"
             for p in session_preds[:10]: 
                 iss = p.get('issue_number', '0000000')
                 table_str += f"{iss[:3]}**{iss[-4:]:<6}| {p.get('actual_number', 0)}-{p.get('actual_size', 'BIG'):<5} | {'✅' if 'WIN' in p.get('win_lose', '') else '❌'}\n"
             table_str += "</code>"
 
-            LAST_KNOWN_STATE.update({"table_str": table_str, "next_issue": next_issue, "predicted": predicted, "final_prob": final_prob, "reason": reason, "bet_advice": bet_advice})
+            LAST_KNOWN_STATE.update({
+                "table_str": table_str, "next_issue": next_issue, "predicted": predicted, 
+                "final_prob": final_prob, "reason": reason, "bet_advice": bet_advice
+            })
             
             if is_new_issue or not MAIN_MESSAGE_ID:
                 try:
                     img_buf = await asyncio.to_thread(generate_winrate_chart, session_preds)
                     img_bytes = img_buf.read() 
-                    sec_left = 60 - (int(time.time()) % 60); sec_left = 0 if sec_left == 60 else sec_left
+                    
+                    sec_left = 60 - (int(time.time()) % 60)
+                    if sec_left == 60: sec_left = 0
                     iss_display = f"{next_issue[:3]}**{next_issue[-4:]}"
-                    tg_caption = (f"<b>🏆 SIX-LOTTERY (AI PRO EDITION)</b>\n⏰ Next Result In: <b>{sec_left}s</b>\n\n{table_str}\n🅿️ <b>Period:</b> {iss_display}\n🎯 <b>Predict: {predicted}</b>\n📈 <b>ဖြစ်နိုင်ခြေ:</b> {final_prob}%\n🤖 <b>Auto-Bet:</b> {LAST_KNOWN_STATE['autobet']}\n{LAST_KNOWN_STATE['balance']}\n{LAST_KNOWN_STATE['profit']}\n💡 <b>အကြောင်းပြချက်:</b>\n{reason}\n━━━━━━━━━━━━━━━━━━\n{bet_advice}")
+                    
+                    tg_caption = (
+                        f"<b>🏆 SIX-LOTTERY (AI PRO V2)</b>\n"
+                        f"⏰ Next Result In: <b>{sec_left}s</b>\n\n"
+                        f"{table_str}\n"
+                        f"🅿️ <b>Period:</b> {iss_display}\n"
+                        f"🎯 <b>Predict: {predicted}</b>\n"
+                        f"📈 <b>ဖြစ်နိုင်ခြေ:</b> {final_prob}%\n"
+                        f"{LAST_KNOWN_STATE['balance']}\n"
+                        f"{LAST_KNOWN_STATE['profit']}\n"
+                        f"💡 <b>အကြောင်းပြချက်:</b>\n{reason}\n"
+                        f"━━━━━━━━━━━━━━━━━━\n{bet_advice}"
+                    )
+                    
                     if MAIN_MESSAGE_ID:
                         try:
                             photo = BufferedInputFile(img_bytes, filename=f"chart_{int(time.time())}.png")
@@ -436,67 +385,76 @@ async def check_game_and_predict(session: aiohttp.ClientSession):
                         except Exception:
                             try: await bot.delete_message(chat_id=TELEGRAM_CHANNEL_ID, message_id=MAIN_MESSAGE_ID)
                             except: pass
-                            msg = await bot.send_photo(chat_id=TELEGRAM_CHANNEL_ID, photo=BufferedInputFile(img_bytes, filename=f"fb_{int(time.time())}.png"), caption=tg_caption, disable_notification=True)
+                            photo_fallback = BufferedInputFile(img_bytes, filename=f"fb_{int(time.time())}.png")
+                            msg = await bot.send_photo(chat_id=TELEGRAM_CHANNEL_ID, photo=photo_fallback, caption=tg_caption, disable_notification=True)
                             MAIN_MESSAGE_ID = msg.message_id
                     else:
-                        msg = await bot.send_photo(chat_id=TELEGRAM_CHANNEL_ID, photo=BufferedInputFile(img_bytes, filename=f"new_{int(time.time())}.png"), caption=tg_caption)
+                        photo_new = BufferedInputFile(img_bytes, filename=f"new_{int(time.time())}.png")
+                        msg = await bot.send_photo(chat_id=TELEGRAM_CHANNEL_ID, photo=photo_new, caption=tg_caption)
                         MAIN_MESSAGE_ID = msg.message_id
+                    
                     LAST_CAPTION_EDIT_TIME = time.time()
                 except Exception: pass
                 return
 
-    elif data and data.get('code') != 0: API_ERROR_COUNT += 1; CURRENT_TOKEN = "" if data.get('code') == 401 else CURRENT_TOKEN
-    else: API_ERROR_COUNT += 1
+    elif data and data.get('code') != 0:
+        API_ERROR_COUNT += 1
+        if data.get('code') == 401: CURRENT_TOKEN = ""
+    else:
+        API_ERROR_COUNT += 1
 
+    # Timer & Editing logic 
     current_time = time.time()
     if current_time - LAST_CAPTION_EDIT_TIME >= 1.5:
         if MAIN_MESSAGE_ID and LAST_KNOWN_STATE["next_issue"] != "Loading":
-            sec_left = 60 - (int(time.time()) % 60); sec_left = 0 if sec_left == 60 else sec_left
-            iss_display = f"{LAST_KNOWN_STATE['next_issue'][:3]}**{LAST_KNOWN_STATE['next_issue'][-4:]}"
-            tg_caption = (f"<b>🏆 SIX-LOTTERY (AI PRO EDITION)</b>\n⏰ Next Result In: <b>{sec_left}s</b>\n\n{LAST_KNOWN_STATE['table_str']}\n🅿️ <b>Period:</b> {iss_display}\n🎯 <b>Predict: {LAST_KNOWN_STATE['predicted']}</b>\n📈 <b>ဖြစ်နိုင်ခြေ:</b> {LAST_KNOWN_STATE['final_prob']}%\n🤖 <b>Auto-Bet:</b> {LAST_KNOWN_STATE.get('autobet', '🔴 OFF')}\n{LAST_KNOWN_STATE.get('balance', '')}\n{LAST_KNOWN_STATE.get('profit', '')}\n💡 <b>အကြောင်းပြချက်:</b>\n{LAST_KNOWN_STATE['reason']}\n━━━━━━━━━━━━━━━━━━\n{LAST_KNOWN_STATE['bet_advice']}")
+            sec_left = 60 - (int(time.time()) % 60)
+            if sec_left == 60: sec_left = 0 
+            iss = LAST_KNOWN_STATE['next_issue']
+            iss_display = f"{iss[:3]}**{iss[-4:]}" if len(iss) > 4 else iss
+            
+            tg_caption = (
+                f"<b>🏆 SIX-LOTTERY (AI PRO V2)</b>\n"
+                f"⏰ Next Result In: <b>{sec_left}s</b>\n\n"
+                f"{LAST_KNOWN_STATE['table_str']}\n"
+                f"🅿️ <b>Period:</b> {iss_display}\n"
+                f"🎯 <b>Predict: {LAST_KNOWN_STATE['predicted']}</b>\n"
+                f"📈 <b>ဖြစ်နိုင်ခြေ:</b> {LAST_KNOWN_STATE['final_prob']}%\n"
+                f"{LAST_KNOWN_STATE['balance']}\n"
+                f"{LAST_KNOWN_STATE['profit']}\n"
+                f"💡 <b>အကြောင်းပြချက်:</b>\n{LAST_KNOWN_STATE['reason']}\n"
+                f"━━━━━━━━━━━━━━━━━━\n{LAST_KNOWN_STATE['bet_advice']}"
+            )
             if API_ERROR_COUNT >= 3: tg_caption = f"⚠️ <b>[API သော့ သက်တမ်းကုန်သွားပါပြီ! အသစ်လဲပေးပါ]</b>\n\n" + tg_caption
+
             try:
                 await bot.edit_message_caption(chat_id=TELEGRAM_CHANNEL_ID, message_id=MAIN_MESSAGE_ID, caption=tg_caption, parse_mode="HTML")
                 LAST_CAPTION_EDIT_TIME = time.time()
+            except TelegramRetryAfter as e: LAST_CAPTION_EDIT_TIME = time.time() + e.retry_after
             except Exception: pass
 
 # ==========================================
-# 💬 6. TELEGRAM COMMAND HANDLERS
+# 💬 5. TELEGRAM COMMAND HANDLERS
 # ==========================================
-@dp.message(lambda message: message.text and message.text.lower().startswith(".autobet"))
-async def autobet_handler(message: types.Message):
-    global AUTO_BET_ACTIVE, AUTO_BET_BASE_AMOUNT
-    parts = message.text.lower().split()
-    if len(parts) == 1:
-        await message.reply(f"🤖 <b>Auto-Bet Status:</b> {'ON 🟢' if AUTO_BET_ACTIVE else 'OFF 🔴'}\n💰 <b>Base Amount:</b> {AUTO_BET_BASE_AMOUNT}\n\nအသုံးပြုနည်း:\n<code>.autobet on 100</code>\n<code>.autobet off</code>")
-        return
-    cmd = parts[1]
-    if cmd == "on":
-        AUTO_BET_ACTIVE = True
-        if len(parts) >= 3 and parts[2].isdigit(): AUTO_BET_BASE_AMOUNT = int(parts[2])
-        await message.reply(f"✅ Auto-Bet ဖွင့်လိုက်ပါပြီ။\n💰 အခြေခံလောင်းကြေး: {AUTO_BET_BASE_AMOUNT}")
-    elif cmd == "off":
-        AUTO_BET_ACTIVE = False
-        await message.reply("❌ Auto-Bet ပိတ်လိုက်ပါပြီ။")
-
 @dp.message(Command("start"))
 async def send_welcome(message: types.Message):
-    await message.reply("👋 မင်္ဂလာပါ။ စနစ်က Zero-Lag AI Pro Timer ဖြင့် အလုပ်လုပ်နေပါပြီ။")
+    await message.reply("👋 မင်္ဂလာပါ။ စနစ်က Zero-Lag AI Pro V2 Timer ဖြင့် အလုပ်လုပ်နေပါပြီ။\n(Auto-Bet စနစ်အား ပိတ်ထားပါသည်)")
 
 # ==========================================
-# 🔄 7. BACKGROUND TASK
+# 🔄 6. BACKGROUND TASK
 # ==========================================
 async def auto_broadcaster():
     await init_db() 
-    await init_playwright() 
     async with aiohttp.ClientSession() as session:
+        await login_and_get_token(session)
         while True:
-            try: await check_game_and_predict(session)
-            except Exception: pass
+            try: 
+                await check_game_and_predict(session)
+            except Exception: 
+                pass
             await asyncio.sleep(0.5) 
 
 async def main():
-    print("🚀 Aiogram SIX-LOTTERY Bot စတင်နေပါပြီ...\n")
+    print("🚀 Aiogram SIX-LOTTERY Bot (AI Pro V2 Edition - No Autobet) စတင်နေပါပြီ...\n")
     await bot.delete_webhook(drop_pending_updates=True)
     asyncio.create_task(auto_broadcaster())
     await dp.start_polling(bot)
