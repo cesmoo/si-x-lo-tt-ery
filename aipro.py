@@ -34,11 +34,13 @@ history_collection = db['game_history']
 predictions_collection = db['predictions'] 
 
 # ==========================================
-# 🎨 STICKER CONFIGURATION (ဒီနေရာမှာ အစားထိုးပါ)
+# 🎨 STICKER & MULTIPLIER CONFIGURATION
 # ==========================================
-# 💡 @idstickerbot မှ ရလာသော စာသားရှည်ကြီးများကို အောက်ပါ "" ထဲတွင် ထည့်ပါ
-WIN_STICKER_ID = "CAACAgUAAxkBAAEQwnxptubYV3lfXdObrI2p5Hwd2wTWUAAC_hAAAhjHwVSmfHZggStHQzoE"  # ဥပမာ - "CAACAgUAAxkBAAE..."
-LOSE_STICKER_ID = "CAACAgUAAxkBAAEQwn5ptuba_8vM_knhkMxJEuXk2yVEoAACNRIAAhylwVQzmQMbLqf59zoE" # ဥပမာ - "CAACAgUAAxkBAAE..."
+WIN_STICKER_ID = "CAACAgUAAxkBAAEQwoxptvDi-3wtjRP92311IhTP_IYYugACLh4AAs_TuFVVmFgOM6HpNjoE"  
+LOSE_STICKER_ID = "CAACAgUAAxkBAAEQwopptvDfdoCamvrJuEgM3Mwa4OwBVAAC4h0AAq6RuFV03jmaIdIB4joE" 
+
+# လောင်းကြေးအဆ (1x, 2x, 3x...)
+MULTIPLIER_LIST = [1, 2, 3, 5, 8, 15, 30]
 
 # State Variables
 LAST_PROCESSED_ISSUE = None
@@ -71,7 +73,7 @@ async def fetch_with_retry(session, url, headers, json_data, retries=1):
     return None
 
 # ==========================================
-# 🧠 2. PURE AI LOGIC (TEXT ONLY)
+# 🧠 2. AI V3 LOGIC (ANTI-STREAK EDITION)
 # ==========================================
 def get_streak(sizes_list):
     if not sizes_list: return 0
@@ -94,57 +96,71 @@ def ultimate_ai_predict(history_docs, recent_preds, current_issue):
     parities = [d.get('parity', 'EVEN') for d in docs]
     
     score_b, score_s = 0.0, 0.0
-    ml_weight, pattern_weight, trend_weight = 2.5, 1.5, 1.0
     
-    if len(recent_preds) >= 5:
-        wins = sum(1 for p in recent_preds[:5] if p.get('win_lose') == 'WIN')
-        if wins <= 2: 
-            ml_weight, pattern_weight = 3.5, 0.5
+    # 💡 [NEW] Bot ရဲ့ ရှုံးပွဲဆက်မှုကို စစ်ဆေးခြင်း
+    bot_lose_streak = 0
+    if len(recent_preds) > 0:
+        for p in recent_preds:
+            if p.get('win_lose') == 'LOSE': bot_lose_streak += 1
+            else: break
+            
+    # 💡 ၃ ပွဲဆက်တိုက်ရှုံးနေပါက AI အဖြေကို ပြောင်းပြန်လှန်မည် (Inverse Mode)
+    inverse_mode = False
+    if bot_lose_streak >= 3:
+        inverse_mode = True
 
+    # 💡 [NEW] Dragon Rider (အတန်းရှည်လိုက်ခြင်း)
     current_streak = get_streak(sizes)
     if current_streak >= 4:
-        trend_weight = 2.0
-        if sizes[-1] == 'BIG': score_s += trend_weight 
-        else: score_b += trend_weight
+        # ၄ ခါဆက်တူနေရင် ချိုးဖို့မကြိုးစားဘဲ ဆက်လိုက်မည်
+        if sizes[-1] == 'BIG': score_b += 5.0
+        else: score_s += 5.0
+    elif current_streak == 3:
+        # ၃ ခါဆိုရင်တော့ ချိုးဖို့ အားပေးမည်
+        if sizes[-1] == 'BIG': score_s += 2.0
+        else: score_b += 2.0
 
-    X, y, window = [], [], 6 
+    # 💡 [NEW] Ping-Pong Pattern (B-S-B-S)
+    if len(sizes) >= 4:
+        if sizes[-1] != sizes[-2] and sizes[-2] != sizes[-3] and sizes[-3] != sizes[-4]:
+            if sizes[-1] == 'BIG': score_s += 3.0
+            else: score_b += 3.0
+
+    # --- Machine Learning ---
+    X, y, window = [], [], 5 
     def encode_size(s): return 1 if s == 'BIG' else 0
     def encode_parity(p): return 1 if p == 'EVEN' else 0
     
     for i in range(len(sizes) - window):
         row = []
         for j in range(window): row.extend([encode_size(sizes[i+j]), numbers[i+j], encode_parity(parities[i+j])])
-        row.append(sum(numbers[i+window-3:i+window]) / 3.0)
-        row.append(get_streak(sizes[i:i+window]))
         X.append(row); y.append(encode_size(sizes[i+window]))
         
     if len(X) > 30:
-        rf_clf = RandomForestClassifier(n_estimators=100, max_depth=7, random_state=42, n_jobs=-1).fit(X, y)
-        gb_clf = GradientBoostingClassifier(n_estimators=100, learning_rate=0.05, max_depth=4, random_state=42).fit(X, y)
+        # Overfitting မဖြစ်စေရန် Model ကို ပေါ့ပါးအောင် လုပ်ထားသည်
+        rf_clf = RandomForestClassifier(n_estimators=50, max_depth=5, random_state=42, n_jobs=-1).fit(X, y)
+        gb_clf = GradientBoostingClassifier(n_estimators=50, learning_rate=0.05, max_depth=3, random_state=42).fit(X, y)
         
         current_features = []
         for j in range(1, window + 1): current_features.extend([encode_size(sizes[-j]), numbers[-j], encode_parity(parities[-j])])
-        current_features.append(sum(numbers[-3:]) / 3.0)
-        current_features.append(current_streak)
         
-        rf_pred, rf_prob = rf_clf.predict([current_features])[0], max(rf_clf.predict_proba([current_features])[0])
-        gb_pred, gb_prob = gb_clf.predict([current_features])[0], max(gb_clf.predict_proba([current_features])[0])
+        rf_pred = rf_clf.predict([current_features])[0]
+        gb_pred = gb_clf.predict([current_features])[0]
         
+        ml_weight = 1.5
         if rf_pred == gb_pred:
-            if rf_pred == 1: score_b += (rf_prob * ml_weight * 1.5)
-            else: score_s += (rf_prob * ml_weight * 1.5)
+            if rf_pred == 1: score_b += (ml_weight * 1.5)
+            else: score_s += (ml_weight * 1.5)
         else:
-            best_prob, best_pred = max(rf_prob, gb_prob), rf_pred if rf_prob > gb_prob else gb_pred
-            if best_pred == 1: score_b += (best_prob * ml_weight)
-            else: score_s += (best_prob * ml_weight)
-
-    if len(sizes) >= 3:
-        if sizes[-1] != sizes[-2] and sizes[-2] != sizes[-3]:
-            pred_pattern = 'BIG' if sizes[-1] == 'SMALL' else 'SMALL'
-            if pred_pattern == 'BIG': score_b += pattern_weight
-            else: score_s += pattern_weight
+            if rf_pred == 1: score_b += ml_weight
+            else: score_s += ml_weight
 
     final_pred = "BIG" if score_b > score_s else "SMALL"
+    
+    # 💡 Inverse Mode ဖွင့်ထားပါက အဖြေကို ပြောင်းပြန်လှန်မည်
+    if inverse_mode:
+        final_pred = "SMALL" if final_pred == "BIG" else "BIG"
+
     AI_CACHE.update({"last_trained_issue": current_issue, "cached_prediction": final_pred})
     return final_pred
 
@@ -174,14 +190,15 @@ async def check_game_and_predict(session: aiohttp.ClientSession):
             for p in recent_preds:
                 if p.get("win_lose") == "LOSE": ACTUAL_BET_STREAK += 1
                 else: break
-            if ACTUAL_BET_STREAK > 6: ACTUAL_BET_STREAK = 0
+            
+            if ACTUAL_BET_STREAK >= len(MULTIPLIER_LIST): ACTUAL_BET_STREAK = 0
 
             CURRENT_PREDICTED_ISSUE = str(int(latest_issue) + 1)
             history_docs = await history_collection.find().sort("issue_number", -1).limit(500).to_list(length=500)
             CURRENT_PREDICTION_SIZE = ultimate_ai_predict(history_docs, recent_preds, CURRENT_PREDICTED_ISSUE)
 
-            multiplier = 2 ** ACTUAL_BET_STREAK
-            pred_msg = f"⏰ Period: {CURRENT_PREDICTED_ISSUE}\n🎯 Prediction: {CURRENT_PREDICTION_SIZE} {multiplier}x"
+            step_count = ACTUAL_BET_STREAK + 1
+            pred_msg = f"⏰ Period: {CURRENT_PREDICTED_ISSUE}\n🎯 Prediction: {CURRENT_PREDICTION_SIZE} {step_count}x"
             await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=pred_msg)
             return
 
@@ -198,33 +215,35 @@ async def check_game_and_predict(session: aiohttp.ClientSession):
                     upsert=True
                 )
 
-                multiplier = 2 ** ACTUAL_BET_STREAK
+                step_count = ACTUAL_BET_STREAK + 1
                 icon = "🟢" if is_win else "🔴"
                 result_letter = "B" if latest_size == "BIG" else "S"
+                
+                # Inverse Mode အလုပ်လုပ်နေကြောင်း ပြသရန်
+                inverse_alert = " 🔄 (Inverse Mode)" if (not is_win and ACTUAL_BET_STREAK >= 2) else ""
                 
                 result_msg = (
                     f"<b>SIX-LOTTERY</b>\n\n"
                     f"⏰ Period: {latest_issue}\n"
-                    f"🎯 Choice: {CURRENT_PREDICTION_SIZE} {multiplier}x\n"
+                    f"🎯 Choice: {CURRENT_PREDICTION_SIZE} {step_count}x{inverse_alert}\n"
                     f"📊 Result: {icon} {win_lose_db} | {result_letter} ({latest_number})"
                 )
                 
-                # ၁။ Result စာသားကို အရင်ပို့မည်
                 await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=result_msg)
                 
-                # ၂။ 💡 နိုင်/ရှုံး အလိုက် Sticker ကို ဆက်ပို့မည်
                 try:
                     if is_win and WIN_STICKER_ID:
                         await bot.send_sticker(chat_id=TELEGRAM_CHANNEL_ID, sticker=WIN_STICKER_ID)
                     elif not is_win and LOSE_STICKER_ID:
                         await bot.send_sticker(chat_id=TELEGRAM_CHANNEL_ID, sticker=LOSE_STICKER_ID)
                 except Exception as e:
-                    print(f"Sticker ပို့ရာတွင် Error တက်ပါသည်: {e}")
+                    pass
 
-                if is_win: ACTUAL_BET_STREAK = 0
+                if is_win: 
+                    ACTUAL_BET_STREAK = 0
                 else:
                     ACTUAL_BET_STREAK += 1
-                    if ACTUAL_BET_STREAK > 6: ACTUAL_BET_STREAK = 0
+                    if ACTUAL_BET_STREAK >= len(MULTIPLIER_LIST): ACTUAL_BET_STREAK = 0
 
             LAST_PROCESSED_ISSUE = latest_issue
 
@@ -234,8 +253,9 @@ async def check_game_and_predict(session: aiohttp.ClientSession):
             
             CURRENT_PREDICTION_SIZE = ultimate_ai_predict(history_docs, recent_preds, CURRENT_PREDICTED_ISSUE)
 
-            multiplier = 2 ** ACTUAL_BET_STREAK
-            pred_msg = f"⏰ Period: {CURRENT_PREDICTED_ISSUE}\n🎯 Prediction: {CURRENT_PREDICTION_SIZE} {multiplier}x"
+            step_count = ACTUAL_BET_STREAK + 1
+            inverse_alert = " 🔄" if ACTUAL_BET_STREAK >= 3 else ""
+            pred_msg = f"⏰ Period: {CURRENT_PREDICTED_ISSUE}\n🎯 Prediction: {CURRENT_PREDICTION_SIZE} {step_count}x{inverse_alert}"
             await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=pred_msg)
 
 # ==========================================
@@ -250,7 +270,7 @@ async def auto_broadcaster():
             await asyncio.sleep(1.0) 
 
 async def main():
-    print("🚀 Aiogram SIX-LOTTERY Bot (Text+Sticker Edition) စတင်နေပါပြီ...\n")
+    print("🚀 Aiogram SIX-LOTTERY Bot (AI V3 Anti-Streak) စတင်နေပါပြီ...\n")
     await bot.delete_webhook(drop_pending_updates=True)
     asyncio.create_task(auto_broadcaster())
     await dp.start_polling(bot)
