@@ -36,8 +36,8 @@ predictions_collection = db['predictions']
 # ==========================================
 # 🎨 STICKER & MULTIPLIER CONFIGURATION
 # ==========================================
-WIN_STICKER_ID = "CAACAgUAAxkBAAEQwoxptvDi-3wtjRP92311IhTP_IYYugACLh4AAs_TuFVVmFgOM6HpNjoE"  
-LOSE_STICKER_ID = "CAACAgUAAxkBAAEQwopptvDfdoCamvrJuEgM3Mwa4OwBVAAC4h0AAq6RuFV03jmaIdIB4joE" 
+WIN_STICKER_ID = "CAACAgUAAxkBAAEQwp5ptvW0w1rf71LGHxi_1fzyRXThegACVR8AAkDtuFVty-3R5xnGHjoE"  
+LOSE_STICKER_ID = "" 
 
 # လောင်းကြေးအဆ (1x, 2x, 3x...)
 MULTIPLIER_LIST = [1, 2, 3, 5, 8, 15, 30]
@@ -220,10 +220,10 @@ async def check_game_and_predict(session: aiohttp.ClientSession):
                 result_letter = "B" if latest_size == "BIG" else "S"
                 
                 # Inverse Mode အလုပ်လုပ်နေကြောင်း ပြသရန်
-                inverse_alert = " 🔄 (Inverse Mode)" if (not is_win and ACTUAL_BET_STREAK >= 2) else ""
+                inverse_alert = "REV" if (not is_win and ACTUAL_BET_STREAK >= 2) else ""
                 
                 result_msg = (
-                    f"<b>SIX-LOTTERY</b>\n\n"
+                    f"<b>𝙎𝙄𝙓-𝙇𝙊𝙏𝙏𝙀𝙍𝙔</b>\n\n"
                     f"⏰ Period: {latest_issue}\n"
                     f"🎯 Choice: {CURRENT_PREDICTION_SIZE} {step_count}x{inverse_alert}\n"
                     f"📊 Result: {icon} {win_lose_db} | {result_letter} ({latest_number})"
@@ -254,7 +254,7 @@ async def check_game_and_predict(session: aiohttp.ClientSession):
             CURRENT_PREDICTION_SIZE = ultimate_ai_predict(history_docs, recent_preds, CURRENT_PREDICTED_ISSUE)
 
             step_count = ACTUAL_BET_STREAK + 1
-            inverse_alert = " 🔄" if ACTUAL_BET_STREAK >= 3 else ""
+            inverse_alert = "REV" if ACTUAL_BET_STREAK >= 3 else ""
             pred_msg = f"⏰ Period: {CURRENT_PREDICTED_ISSUE}\n🎯 Prediction: {CURRENT_PREDICTION_SIZE} {step_count}x{inverse_alert}"
             await bot.send_message(chat_id=TELEGRAM_CHANNEL_ID, text=pred_msg)
 
